@@ -21,7 +21,7 @@ import "net"
 import "fmt"
 import "bufio"
 import "time"
-//import "os"
+import "os"
 //import "strconv"
 import "reflect"
 
@@ -146,7 +146,7 @@ func main() {
 func parseModeS(message []byte) {
   // https://en.wikipedia.org/wiki/Secondary_surveillance_radar#Mode_S
   // https://github.com/mutability/dump1090/blob/master/mode_s.c
-  linkFmt := int64((message[0] & 0xF8) >> 3)
+  linkFmt := uint((message[0] & 0xF8) >> 3)
 
   var msgType string
   switch linkFmt {
@@ -181,11 +181,34 @@ func parseModeS(message []byte) {
   //fmt.Printf("UF: %08s\n", strconv.FormatInt(linkFmt, 2))
   fmt.Println(msgType)
 
+ if linkFmt == 11 || linkFmt == 17 || linkFmt == 18 {
+    icaoAddr := uint(message[1])*65536+uint(message[2])*256+uint(message[3])
+    fmt.Printf("ICAO: %06x\n", icaoAddr)
+  }
 
-  icaoCode := int(message[1])*65536+int(message[2])*256+int(message[3])
-  fmt.Printf("ICAO: %06x\n", icaoCode)
+  if linkFmt == 0 || linkFmt == 4 || linkFmt == 16 || linkFmt == 20 {
+    // Altitude: 13 bit signal
+    altCode := (uint(message[2])*256 + uint(message[3])) & 0x1FFF;
+    alt := int(-9999)
 
-  fmt.Println()
+    if (altCode & 0x0040) > 0 {
+      // meters
+
+    } else if (altCode & 0x0010) > 0 {
+      // feet, raw integer
+      ac := (altCode & 0x1F80) >> 2 + (altCode & 0x0020) >> 1 + (altCode & 0x000F)
+      alt = int((ac * 25) - 1000)
+
+    } else if (altCode & 0x0010) == 0 {
+      // feet, Gillham coded
+      alt = parseGillhamAlt(altCode)
+    }
+    fmt.Printf("Alt: %d\n", alt)
+  }
+
+  if linkFmt == 17 || linkFmt == 18 {
+    decodeExtendedSquitter(message, linkFmt)
+  }
 }
 
 func parseTime(timebytes []byte) time.Time {
@@ -241,4 +264,102 @@ func parseTime(timebytes []byte) time.Time {
   return time.Date(
     utcDate.Year(), utcDate.Month(), utcDate.Day(),
     hr, min, sec, nanoSeconds, time.UTC)
+}
+
+func parseGillhamAlt(gAlt uint) int {
+  onehundreds  := uint(0)
+  fivehundreds := uint(0)
+
+  if (gAlt & 0xFFFF8889) > 0 || (gAlt & 0x000000F0) == 0 {
+    return -9999;
+  }
+
+  if (gAlt & 0x0010) > 0 {onehundreds ^= 0x007;} // C1
+  if (gAlt & 0x0020) > 0 {onehundreds ^= 0x003;} // C2
+  if (gAlt & 0x0040) > 0 {onehundreds ^= 0x001;} // C4
+
+  // Remove 7s from onehundreds (Make 7->5, snd 5->7).
+  if ((onehundreds & 5) == 5) {onehundreds ^= 2;}
+
+  // Check for invalid codes, only 1 to 5 are valid
+  if (onehundreds > 5) {return -9999;}
+
+//if (gAlt & 0x0001) > 0 {fivehundreds ^= 0x1FF;} // D1 never used for altitude
+  if (gAlt & 0x0002) > 0 {fivehundreds ^= 0x0FF;} // D2
+  if (gAlt & 0x0004) > 0 {fivehundreds ^= 0x07F;} // D4
+
+  if (gAlt & 0x1000) > 0 {fivehundreds ^= 0x03F;} // A1
+  if (gAlt & 0x2000) > 0 {fivehundreds ^= 0x01F;} // A2
+  if (gAlt & 0x4000) > 0 {fivehundreds ^= 0x00F;} // A4
+
+  if (gAlt & 0x0100) > 0 {fivehundreds ^= 0x007;} // B1
+  if (gAlt & 0x0200) > 0 {fivehundreds ^= 0x003;} // B2
+  if (gAlt & 0x0400) > 0 {fivehundreds ^= 0x001;} // B4
+
+  // Correct order of onehundreds.
+  if (fivehundreds & 1) > 0 {onehundreds = 6 - onehundreds;}
+
+  return ((int(fivehundreds) * 5) + int(onehundreds) - 13);
+}
+
+func decodeExtendedSquitter(message []byte, linkFmt uint) {
+  const ais_charset = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?"
+
+
+  if linkFmt == 18 {
+    switch (message[0] & 7) {
+    case 1:
+      fmt.Println("Non-ICAO")
+    case 2:
+      fmt.Println("TIS-B fine")
+    case 3:
+      fmt.Println("TIS-B coarse")
+    case 5:
+      fmt.Println("TIS-B anon ADS-B relay")
+    case 6:
+      fmt.Println("ADS-B rebroadcast")
+    default:
+      fmt.Println("Non-ICAO unknown")
+    }
+  }
+
+  msgType := uint(message[4]) >> 3
+  var msgSubType uint
+  if msgType == 29 {
+    msgSubType = (uint(message[4]) & 6) >> 1
+  } else {
+    msgSubType = uint(message[4]) & 7
+  }
+
+  switch msgType {
+  case 1,2,3,4:
+    // Aircraft ID
+    chars1 := uint(message[5]) << 16 + uint(message[6]) << 8 + uint(message[7])
+    chars2 := uint(message[8]) << 16 + uint(message[9]) << 8 + uint(message[10])
+
+    var fltByte [8]byte
+
+    if chars1 != 0 && chars2 != 0 {
+      fltByte[3] = ais_charset[chars1 & 0x3F]; chars1 >>= 6
+      fltByte[2] = ais_charset[chars1 & 0x3F]; chars1 >>= 6
+      fltByte[1] = ais_charset[chars1 & 0x3F]; chars1 >>= 6
+      fltByte[0] = ais_charset[chars1 & 0x3F]
+      fltByte[7] = ais_charset[chars2 & 0x3F]; chars2 >>= 6
+      fltByte[6] = ais_charset[chars2 & 0x3F]; chars2 >>= 6
+      fltByte[5] = ais_charset[chars2 & 0x3F]; chars2 >>= 6
+      fltByte[4] = ais_charset[chars2 & 0x3F]
+
+      callsign := string(fltByte[:8])
+      fmt.Println("Callsign: ", callsign)
+    }
+  }
+
+  switch msgSubType {
+  case 1:
+    break
+  }
+
+
+
+
 }
