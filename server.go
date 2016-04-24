@@ -16,6 +16,7 @@
 package main
 
 //import "bytes"
+import "math"
 import "encoding/binary"
 import "net"
 import "fmt"
@@ -28,10 +29,6 @@ import "reflect"
 
 var MAGIC_MLAT_TIMESTAMP = []byte{0xFF, 0x00, 0x4D, 0x4C, 0x41, 0x54}
 const AIS_CHARSET = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?"
-
-const MAX_UINT16 = ^uint16(0)
-const MAX_UINT32 = ^uint32(0)
-
 
 func main() {
   fmt.Println("Launching server...")
@@ -155,8 +152,8 @@ func parseModeS(message []byte, known_aircraft map[uint32]Aircraft) {
 
   var aircraft Aircraft
   var aircraft_exists bool
-  icaoAddr := MAX_UINT32
-  altCode  := MAX_UINT16;
+  icaoAddr := uint32(math.MaxUint32)
+  altCode  := uint16(math.MaxUint16)
 
 
   var msgType string
@@ -197,9 +194,18 @@ func parseModeS(message []byte, known_aircraft map[uint32]Aircraft) {
     fmt.Printf("ICAO: %06x\n", icaoAddr)
   }
 
-  if icaoAddr != MAX_UINT32 {
+  if icaoAddr != math.MaxUint32 {
     aircraft, aircraft_exists = known_aircraft[icaoAddr]
     aircraft.icaoAddr = icaoAddr
+    if !aircraft_exists {
+      // initialize some values
+      aircraft.oRawLat = math.MaxUint32
+      aircraft.oRawLon = math.MaxUint32
+      aircraft.eRawLat = math.MaxUint32
+      aircraft.eRawLon = math.MaxUint32
+      aircraft.latitude = math.MaxFloat32
+      aircraft.longitude = math.MaxFloat32
+    }
   }
   fmt.Println(aircraft)
   fmt.Println(aircraft_exists)
@@ -228,7 +234,7 @@ func parseModeS(message []byte, known_aircraft map[uint32]Aircraft) {
     aircraft = decodeExtendedSquitter(message, linkFmt, aircraft)
   }
 
-  if icaoAddr != MAX_UINT32 {
+  if icaoAddr != math.MaxUint32 {
     known_aircraft[icaoAddr] = aircraft
     fmt.Println(aircraft)
   }
@@ -361,8 +367,10 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
 
   fmt.Printf("ext msg: %d\n", msgType)
 
-  raw_latitude  := MAX_UINT32
-  raw_longitude := MAX_UINT32
+  raw_latitude  := uint32(math.MaxUint32)
+  raw_longitude := uint32(math.MaxUint32)
+  latitude      := float32(math.MaxFloat32)
+  longitude     := float32(math.MaxFloat32)
 
   switch msgType {
   case 1,2,3,4:
@@ -403,12 +411,25 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
     }
   }
 
-  // http://www.lll.lu/~edward/edward/adsb/DecodingADSBposition.html
-  if (raw_latitude != MAX_UINT32) && (raw_longitude != MAX_UINT32) {
+  if (raw_latitude != math.MaxUint32) && (raw_longitude != math.MaxUint32) {
     isEvenFrame := (uint8(message[6]) & 4) == 4
-    parseRawLatLon(raw_latitude, raw_longitude, isEvenFrame)
-  }
 
+    if isEvenFrame && aircraft.oRawLat != math.MaxUint32 && aircraft.oRawLon != math.MaxUint32 {
+      latitude, longitude = parseRawLatLon(raw_latitude, raw_longitude, aircraft.oRawLat, aircraft.oRawLon)
+      aircraft.oRawLat = math.MaxUint32
+      aircraft.oRawLon = math.MaxUint32
+    } else if (!isEvenFrame && aircraft.eRawLat != math.MaxUint32 && aircraft.eRawLon != math.MaxUint32) {
+      latitude, longitude = parseRawLatLon(aircraft.eRawLat, aircraft.eRawLon, raw_latitude, raw_longitude)
+      aircraft.eRawLat = math.MaxUint32
+      aircraft.eRawLon = math.MaxUint32
+    } else if isEvenFrame {
+      aircraft.eRawLat = raw_latitude
+      aircraft.eRawLon = raw_longitude
+    } else if !isEvenFrame {
+      aircraft.oRawLat = raw_latitude
+      aircraft.oRawLon = raw_longitude
+    }
+  }
 
   switch msgSubType {
   case 1:
@@ -422,14 +443,36 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
   if callsign != "" {
     aircraft.callsign = callsign
   }
+  if latitude != math.MaxFloat32 && longitude != math.MaxFloat32 {
+    aircraft.latitude  = latitude
+    aircraft.longitude = longitude
+  }
   return aircraft
 }
 
 
-func parseRawLatLon(raw_latitude uint32, raw_longitude uint32, isEvenFrame bool) {
-  fmt.Println("raw lat: ", raw_latitude)
-  fmt.Println("raw lon: ", raw_longitude)
-  fmt.Println("even: ", isEvenFrame)
+func parseRawLatLon(evenLat uint32, evenLon uint32, oddLat uint32, oddLon uint32) (latitude float32, longitude float32) {
+  if evenLat == math.MaxUint32 || oddLat == math.MaxUint32 ||
+     oddLat == math.MaxUint32 || oddLon == math.MaxUint32 {
+    return math.MaxFloat32, math.MaxFloat32
+  }
+
+
+  // http://www.lll.lu/~edward/edward/adsb/DecodingADSBposition.html
+  j := int32(float64((59*evenLat - 60*oddLat) / 131072) + float64(0.5))
+  fmt.Printf("J: %d\n", j)
+
+  const airdlat0 = float64(6)
+  const airdlat1 = float64(360)/float64(59)
+
+  rlatEven := airdlat0 * (float64(j%60) + float64(evenLat)/131072)
+  rlatOdd  := airdlat1 * (float64(j%59) + float64(oddLat)/131072)
+
+  fmt.Printf("rlat(0): %f\n", rlatEven)
+  fmt.Printf("rlat(1): %f\n", rlatOdd)
+
+
+  return math.MaxFloat32, math.MaxFloat32
 }
 
 
@@ -442,6 +485,9 @@ type Aircraft struct {
   eRawLon  uint32
   oRawLat  uint32
   oRawLon  uint32
+
+  latitude  float32
+  longitude float32
 }
 
 func cprNLFunction(lat float32) uint8 {
