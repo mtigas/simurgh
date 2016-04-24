@@ -76,7 +76,8 @@ func main() {
       switch msgType {
         case 0x31:
           //fmt.Print("Type 1 Mode-AC")
-          msgLen = 10 // 2 + 8 header
+          //msgLen = 10 // 2 + 8 header
+          continue // not supported yet
         case 0x32:
           //fmt.Print("Type 2 Mode-S short")
           msgLen = 15 // 7 + 8 header
@@ -85,7 +86,8 @@ func main() {
           msgLen = 22 // 14
         case 0x34:
           //fmt.Print("Status Signal")
-          msgLen = 10 // ??
+          //msgLen = 10 // ??
+          continue // not supported
         default:
           continue
           //msgLen = 8 // shortest possible msg w/header & timetstamp
@@ -101,14 +103,14 @@ func main() {
       timestamp := parseTime(message[1:7])
       fmt.Println(timestamp)
       switch msgType {
-        case 0x31:
-          fmt.Println("Type 1 Mode-AC")
+        //case 0x31:
+        //  fmt.Println("Type 1 Mode-AC")
         case 0x32:
           fmt.Println("Type 2 Mode-S short")
         case 0x33:
           fmt.Println("Type 3 Mode-S long")
-        case 0x34:
-          fmt.Println("Status Signal")
+        //case 0x34:
+        //  fmt.Println("Status Signal")
       }
 
       sigLevel := message[7]
@@ -119,13 +121,60 @@ func main() {
       for i:= 0; i < len(msgContent); i++ {
         fmt.Printf("%02x", msgContent[i])
       }
-      fmt.Print("\n")
+      fmt.Println()
+
+
+      parseModeS(msgContent)
     }
 
   }
 
 }
 
+func parseModeS(message []byte) {
+  // https://en.wikipedia.org/wiki/Secondary_surveillance_radar#Mode_S
+  // https://github.com/mutability/dump1090/blob/master/mode_s.c
+  linkFmt := int64((message[0] & 0xF8) >> 3)
+
+  var msgType string
+  switch linkFmt {
+  case 0:
+    msgType = "short air-air surveillance (TCAS)"
+  case 4:
+    msgType = "surveillance, altitude reply"
+  case 5:
+    msgType = "surveillance, Mode A identity reply"
+  case 11:
+    msgType = "All-Call reply containing aircraft address"
+  case 16:
+    msgType = "long air-air surveillance (TCAS)"
+  case 17:
+    msgType = "extended squitter"
+  case 18:
+    msgType = "TIS-B"
+  case 19:
+    msgType = "military extended squitter"
+  case 20:
+    msgType = "Comm-B including altitude reply"
+  case 21:
+    msgType = "Comm-B reply including Mode A identity"
+  case 22:
+    msgType = "military use"
+  case 24:
+    msgType = "special long msg"
+  default:
+    msgType = "unknown"
+  }
+  //fmt.Printf("UF: %d\n", linkFmt)
+  //fmt.Printf("UF: %08s\n", strconv.FormatInt(linkFmt, 2))
+  fmt.Println(msgType)
+
+
+  icaoCode := int(message[1])*65536+int(message[2])*256+int(message[3])
+  fmt.Printf("ICAO: %06x\n", icaoCode)
+
+  fmt.Println()
+}
 
 func parseTime(timebytes []byte) time.Time {
   // Takes a 6 byte array, which represents a 48bit GPS timestamp
