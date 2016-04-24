@@ -27,6 +27,11 @@ import "reflect"
 
 
 var MAGIC_MLAT_TIMESTAMP = []byte{0xFF, 0x00, 0x4D, 0x4C, 0x41, 0x54}
+const AIS_CHARSET = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?"
+
+const MAX_UINT16 = ^uint16(0)
+const MAX_UINT32 = ^uint32(0)
+
 
 func main() {
   fmt.Println("Launching server...")
@@ -40,6 +45,8 @@ func main() {
   reader := bufio.NewReader(conn)
 
   var buffered_message []byte
+
+  known_aircraft := make(map[uint32]Aircraft)
 
   // run loop forever (or until ctrl-c)
   for {
@@ -63,90 +70,94 @@ func main() {
     // Are we on a *real* "message start" boundary? Then we're done
     // with our buffer.
     parseBuffer := false
-    switch current_message[0] {
-    case 0x31, 0x32, 0x33, 0x34:
+    if current_message[0] == 0x31 || current_message[0] == 0x32 ||
+       current_message[0] == 0x33 || current_message[0] == 0x34 {
       parseBuffer = true
     }
 
     if !parseBuffer {
       continue
-    } else {
-      message := buffered_message
-      buffered_message = nil
+    }
+    message := buffered_message
+    buffered_message = nil
 
-      msgType := message[0]
-      var msgLen int
+    msgType := message[0]
+    var msgLen int
 
-      switch msgType {
-        case 0x31:
-          //fmt.Print("Type 1 Mode-AC")
-          //msgLen = 10 // 2 + 8 header
-          continue // not supported yet
-        case 0x32:
-          //fmt.Print("Type 2 Mode-S short")
-          msgLen = 15 // 7 + 8 header
-        case 0x33:
-          //fmt.Print("Type 3 Mode-S long")
-          msgLen = 22 // 14
-        case 0x34:
-          //fmt.Print("Status Signal")
-          //msgLen = 10 // ??
-          continue // not supported
-        default:
-          continue
-          //msgLen = 8 // shortest possible msg w/header & timetstamp
-      }
-
-      // Message wasn't long enough to contain the full header (maybe
-      // input stream error), so skip
-      if len(message) < msgLen {
+    switch msgType {
+      case 0x31:
+        //fmt.Print("Type 1 Mode-AC")
+        //msgLen = 10 // 2 + 8 header
+        continue // not supported yet
+      case 0x32:
+        //fmt.Print("Type 2 Mode-S short")
+        //msgLen = 15 // 7 + 8 header
+        continue // later
+      case 0x33:
+        //fmt.Print("Type 3 Mode-S long")
+        msgLen = 22 // 14
+      case 0x34:
+        //fmt.Print("Status Signal")
+        //msgLen = 10 // ??
+        continue // not supported
+      default:
         continue
-      }
-
-      fmt.Println()
-      var timestamp time.Time
-      if reflect.DeepEqual(message[1:7], MAGIC_MLAT_TIMESTAMP) {
-        fmt.Println("MAGIC TIMESTAMP!")
-        otimestamp := parseTime(message[1:7])
-        fmt.Println(otimestamp)
-        timestamp = time.Now()
-      } else {
-        timestamp = parseTime(message[1:7])
-      }
-      fmt.Println(timestamp)
-      switch msgType {
-        //case 0x31:
-        //  fmt.Println("Type 1 Mode-AC")
-        case 0x32:
-          fmt.Println("Type 2 Mode-S short")
-        case 0x33:
-          fmt.Println("Type 3 Mode-S long")
-        //case 0x34:
-        //  fmt.Println("Status Signal")
-      }
-
-      sigLevel := message[7]
-      fmt.Printf("Signal: %#02x (%d)\n", sigLevel, sigLevel)
-
-      msgContent := message[8:len(message)-1]
-      fmt.Printf("%d byte frame\n", len(msgContent))
-      for i:= 0; i < len(msgContent); i++ {
-        fmt.Printf("%02x", msgContent[i])
-      }
-      fmt.Println()
-
-
-      parseModeS(msgContent)
+        //msgLen = 8 // shortest possible msg w/header & timetstamp
     }
 
+    // Message wasn't long enough to contain the full header (maybe
+    // input stream error), so skip
+    if len(message) < msgLen {
+      continue
+    }
+
+    fmt.Println()
+    var timestamp time.Time
+    if reflect.DeepEqual(message[1:7], MAGIC_MLAT_TIMESTAMP) {
+      fmt.Println("FROM MLAT")
+      //otimestamp := parseTime(message[1:7])
+      //fmt.Println(otimestamp)
+      timestamp = time.Now()
+    } else {
+      timestamp = parseTime(message[1:7])
+    }
+    fmt.Println(timestamp)
+    switch msgType {
+      //case 0x31:
+      //  fmt.Println("Type 1 Mode-AC")
+      case 0x32:
+        fmt.Println("Type 2 Mode-S short")
+      case 0x33:
+        fmt.Println("Type 3 Mode-S long")
+      //case 0x34:
+      //  fmt.Println("Status Signal")
+    }
+
+    sigLevel := message[7]
+    fmt.Printf("Signal: %#02x (%d)\n", sigLevel, sigLevel)
+
+    msgContent := message[8:len(message)-1]
+    fmt.Printf("%d byte frame\n", len(msgContent))
+    for i:= 0; i < len(msgContent); i++ {
+      fmt.Printf("%02x", msgContent[i])
+    }
+    fmt.Println()
+
+    parseModeS(msgContent, known_aircraft)
   }
 
 }
 
-func parseModeS(message []byte) {
+func parseModeS(message []byte, known_aircraft map[uint32]Aircraft) {
   // https://en.wikipedia.org/wiki/Secondary_surveillance_radar#Mode_S
   // https://github.com/mutability/dump1090/blob/master/mode_s.c
   linkFmt := uint((message[0] & 0xF8) >> 3)
+
+  var aircraft Aircraft
+  var aircraft_exists bool
+  icaoAddr := MAX_UINT32
+  altCode  := MAX_UINT16;
+
 
   var msgType string
   switch linkFmt {
@@ -182,13 +193,20 @@ func parseModeS(message []byte) {
   fmt.Println(msgType)
 
  if linkFmt == 11 || linkFmt == 17 || linkFmt == 18 {
-    icaoAddr := uint(message[1])*65536+uint(message[2])*256+uint(message[3])
+    icaoAddr = uint32(message[1])*65536+uint32(message[2])*256+uint32(message[3])
     fmt.Printf("ICAO: %06x\n", icaoAddr)
   }
 
+  if icaoAddr != MAX_UINT32 {
+    aircraft, aircraft_exists = known_aircraft[icaoAddr]
+    aircraft.icaoAddr = icaoAddr
+  }
+  fmt.Println(aircraft)
+  fmt.Println(aircraft_exists)
+
   if linkFmt == 0 || linkFmt == 4 || linkFmt == 16 || linkFmt == 20 {
     // Altitude: 13 bit signal
-    altCode := (uint(message[2])*256 + uint(message[3])) & 0x1FFF;
+    altCode = (uint16(message[2])*256 + uint16(message[3])) & 0x1FFF;
     alt := int(-9999)
 
     if (altCode & 0x0040) > 0 {
@@ -207,7 +225,12 @@ func parseModeS(message []byte) {
   }
 
   if linkFmt == 17 || linkFmt == 18 {
-    decodeExtendedSquitter(message, linkFmt)
+    aircraft = decodeExtendedSquitter(message, linkFmt, aircraft)
+  }
+
+  if icaoAddr != MAX_UINT32 {
+    known_aircraft[icaoAddr] = aircraft
+    fmt.Println(aircraft)
   }
 }
 
@@ -266,9 +289,11 @@ func parseTime(timebytes []byte) time.Time {
     hr, min, sec, nanoSeconds, time.UTC)
 }
 
-func parseGillhamAlt(gAlt uint) int {
+func parseGillhamAlt(inAlt uint16) int {
   onehundreds  := uint(0)
   fivehundreds := uint(0)
+
+  gAlt := uint32(inAlt)
 
   if (gAlt & 0xFFFF8889) > 0 || (gAlt & 0x000000F0) == 0 {
     return -9999;
@@ -302,8 +327,11 @@ func parseGillhamAlt(gAlt uint) int {
   return ((int(fivehundreds) * 5) + int(onehundreds) - 13);
 }
 
-func decodeExtendedSquitter(message []byte, linkFmt uint) {
-  const ais_charset = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?"
+func decodeExtendedSquitter(message []byte, linkFmt uint,
+                            aircraft Aircraft) Aircraft {
+
+
+  var callsign string
 
 
   if linkFmt == 18 {
@@ -331,6 +359,11 @@ func decodeExtendedSquitter(message []byte, linkFmt uint) {
     msgSubType = uint(message[4]) & 7
   }
 
+  fmt.Printf("ext msg: %d\n", msgType)
+
+  raw_latitude  := MAX_UINT32
+  raw_longitude := MAX_UINT32
+
   switch msgType {
   case 1,2,3,4:
     // Aircraft ID
@@ -340,26 +373,138 @@ func decodeExtendedSquitter(message []byte, linkFmt uint) {
     var fltByte [8]byte
 
     if chars1 != 0 && chars2 != 0 {
-      fltByte[3] = ais_charset[chars1 & 0x3F]; chars1 >>= 6
-      fltByte[2] = ais_charset[chars1 & 0x3F]; chars1 >>= 6
-      fltByte[1] = ais_charset[chars1 & 0x3F]; chars1 >>= 6
-      fltByte[0] = ais_charset[chars1 & 0x3F]
-      fltByte[7] = ais_charset[chars2 & 0x3F]; chars2 >>= 6
-      fltByte[6] = ais_charset[chars2 & 0x3F]; chars2 >>= 6
-      fltByte[5] = ais_charset[chars2 & 0x3F]; chars2 >>= 6
-      fltByte[4] = ais_charset[chars2 & 0x3F]
+      fltByte[3] = AIS_CHARSET[chars1 & 0x3F]; chars1 >>= 6
+      fltByte[2] = AIS_CHARSET[chars1 & 0x3F]; chars1 >>= 6
+      fltByte[1] = AIS_CHARSET[chars1 & 0x3F]; chars1 >>= 6
+      fltByte[0] = AIS_CHARSET[chars1 & 0x3F]
+      fltByte[7] = AIS_CHARSET[chars2 & 0x3F]; chars2 >>= 6
+      fltByte[6] = AIS_CHARSET[chars2 & 0x3F]; chars2 >>= 6
+      fltByte[5] = AIS_CHARSET[chars2 & 0x3F]; chars2 >>= 6
+      fltByte[4] = AIS_CHARSET[chars2 & 0x3F]
 
-      callsign := string(fltByte[:8])
+      callsign = string(fltByte[:8])
       fmt.Println("Callsign: ", callsign)
     }
+  //case 19:
+  //  // Airborne Velocity
+  case 5,6,7,8:
+    // Ground position
+    raw_latitude = uint32(message[6]) & 3 << 15 + uint32(message[7]) << 7 +
+      uint32(message[8]) >> 1
+    raw_longitude = uint32(message[8]) & 1 << 16 + uint32(message[9]) << 8 +
+      uint32(message[10])
+  case 0,9,10,11,12,13,14,15,16,17,18,20,21,22:
+    //ac12Data := (uint(message[5]) << 4) + (uint(message[6]) >> 4) & 0x0FFF
+    if msgType != 0 {
+      raw_latitude = uint32(message[6]) & 3 << 15 + uint32(message[7]) << 7 +
+        uint32(message[8]) >> 1
+      raw_longitude = uint32(message[8]) & 1 << 16 + uint32(message[9]) << 8 +
+        uint32(message[10])
+    }
   }
+
+  // http://www.lll.lu/~edward/edward/adsb/DecodingADSBposition.html
+  if (raw_latitude != MAX_UINT32) && (raw_longitude != MAX_UINT32) {
+    isEvenFrame := (uint8(message[6]) & 4) == 4
+    parseRawLatLon(raw_latitude, raw_longitude, isEvenFrame)
+  }
+
 
   switch msgSubType {
   case 1:
     break
+  case 99999:
+    os.Exit(1)
   }
 
 
 
+  if callsign != "" {
+    aircraft.callsign = callsign
+  }
+  return aircraft
+}
 
+
+func parseRawLatLon(raw_latitude uint32, raw_longitude uint32, isEvenFrame bool) {
+  fmt.Println("raw lat: ", raw_latitude)
+  fmt.Println("raw lon: ", raw_longitude)
+  fmt.Println("even: ", isEvenFrame)
+}
+
+
+type Aircraft struct {
+  icaoAddr uint32
+
+  callsign string
+
+  eRawLat  uint32
+  eRawLon  uint32
+  oRawLat  uint32
+  oRawLon  uint32
+}
+
+func cprNLFunction(lat float32) uint8 {
+    if (lat < 0) { lat = -lat };
+    switch {
+    case (lat < 10.47047130): return 59;
+    case (lat < 14.82817437): return 58;
+    case (lat < 18.18626357): return 57;
+    case (lat < 21.02939493): return 56;
+    case (lat < 23.54504487): return 55;
+    case (lat < 25.82924707): return 54;
+    case (lat < 27.93898710): return 53;
+    case (lat < 29.91135686): return 52;
+    case (lat < 31.77209708): return 51;
+    case (lat < 33.53993436): return 50;
+    case (lat < 35.22899598): return 49;
+    case (lat < 36.85025108): return 48;
+    case (lat < 38.41241892): return 47;
+    case (lat < 39.92256684): return 46;
+    case (lat < 41.38651832): return 45;
+    case (lat < 42.80914012): return 44;
+    case (lat < 44.19454951): return 43;
+    case (lat < 45.54626723): return 42;
+    case (lat < 46.86733252): return 41;
+    case (lat < 48.16039128): return 40;
+    case (lat < 49.42776439): return 39;
+    case (lat < 50.67150166): return 38;
+    case (lat < 51.89342469): return 37;
+    case (lat < 53.09516153): return 36;
+    case (lat < 54.27817472): return 35;
+    case (lat < 55.44378444): return 34;
+    case (lat < 56.59318756): return 33;
+    case (lat < 57.72747354): return 32;
+    case (lat < 58.84763776): return 31;
+    case (lat < 59.95459277): return 30;
+    case (lat < 61.04917774): return 29;
+    case (lat < 62.13216659): return 28;
+    case (lat < 63.20427479): return 27;
+    case (lat < 64.26616523): return 26;
+    case (lat < 65.31845310): return 25;
+    case (lat < 66.36171008): return 24;
+    case (lat < 67.39646774): return 23;
+    case (lat < 68.42322022): return 22;
+    case (lat < 69.44242631): return 21;
+    case (lat < 70.45451075): return 20;
+    case (lat < 71.45986473): return 19;
+    case (lat < 72.45884545): return 18;
+    case (lat < 73.45177442): return 17;
+    case (lat < 74.43893416): return 16;
+    case (lat < 75.42056257): return 15;
+    case (lat < 76.39684391): return 14;
+    case (lat < 77.36789461): return 13;
+    case (lat < 78.33374083): return 12;
+    case (lat < 79.29428225): return 11;
+    case (lat < 80.24923213): return 10;
+    case (lat < 81.19801349): return 9;
+    case (lat < 82.13956981): return 8;
+    case (lat < 83.07199445): return 7;
+    case (lat < 83.99173563): return 6;
+    case (lat < 84.89166191): return 5;
+    case (lat < 85.75541621): return 4;
+    case (lat < 86.53536998): return 3;
+    case (lat < 87.00000000): return 2;
+    default: return 1;
+    }
 }
