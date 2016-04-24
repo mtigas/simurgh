@@ -23,6 +23,10 @@ import "bufio"
 import "time"
 //import "os"
 //import "strconv"
+import "reflect"
+
+
+var MAGIC_MLAT_TIMESTAMP = []byte{0xFF, 0x00, 0x4D, 0x4C, 0x41, 0x54}
 
 func main() {
   fmt.Println("Launching server...")
@@ -100,7 +104,15 @@ func main() {
       }
 
       fmt.Println()
-      timestamp := parseTime(message[1:7])
+      var timestamp time.Time
+      if reflect.DeepEqual(message[1:7], MAGIC_MLAT_TIMESTAMP) {
+        fmt.Println("MAGIC TIMESTAMP!")
+        otimestamp := parseTime(message[1:7])
+        fmt.Println(otimestamp)
+        timestamp = time.Now()
+      } else {
+        timestamp = parseTime(message[1:7])
+      }
       fmt.Println(timestamp)
       switch msgType {
         //case 0x31:
