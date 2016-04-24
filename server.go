@@ -97,16 +97,29 @@ func main() {
         continue
       }
 
-      // output message received
-      fmt.Print("\t")
-      for i:= 0; i < len(message); i++ {
-        fmt.Printf("%02x", message[i])
+      fmt.Println()
+      timestamp := parseTime(message[1:7])
+      fmt.Println(timestamp)
+      switch msgType {
+        case 0x31:
+          fmt.Println("Type 1 Mode-AC")
+        case 0x32:
+          fmt.Println("Type 2 Mode-S short")
+        case 0x33:
+          fmt.Println("Type 3 Mode-S long")
+        case 0x34:
+          fmt.Println("Status Signal")
+      }
+
+      sigLevel := message[7]
+      fmt.Printf("Signal: %#02x (%d)\n", sigLevel, sigLevel)
+
+      msgContent := message[8:len(message)-1]
+      fmt.Printf("%d byte frame\n", len(msgContent))
+      for i:= 0; i < len(msgContent); i++ {
+        fmt.Printf("%02x", msgContent[i])
       }
       fmt.Print("\n")
-
-
-      timestamp := parseTime(message[1:7])
-      fmt.Print(timestamp)
     }
 
   }
