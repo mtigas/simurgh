@@ -15,30 +15,33 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package main
 
-//import "bytes"
-import "math"
-import "encoding/binary"
-import "net"
-import "fmt"
 import "bufio"
-import "time"
+import "encoding/binary"
+import "fmt"
+import "math"
+import "net"
 import "os"
-
-//import "strconv"
-//import "reflect"
+import "reflect"
+import "time"
 
 var MAGIC_MLAT_TIMESTAMP = []byte{0xFF, 0x00, 0x4D, 0x4C, 0x41, 0x54}
 
 const AIS_CHARSET = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?"
+const LISTEN_ADDR = "127.0.0.1:8081"
 
 func main() {
 	// test: http://www.lll.lu/~edward/edward/adsb/DecodingADSBposition.html
 	// parseRawLatLon(uint32(92095), uint32(39846), uint32(88385), uint32(125818), true, false)
+	// test: http://wiki.modesbeast.com/Radarcape:Firmware_Versions#The_GPS_timestamp
+	//timestamp := parseTime([]byte{0x24, 0x4b, 0xbb, 0x9a, 0xc9, 0xf0})
+	//fmt.Println(timestamp)
+	//os.Exit(1)
+
 
 	fmt.Println("Launching server...")
 
 	// listen on all interfaces
-	ln, _ := net.Listen("tcp", ":8081")
+	ln, _ := net.Listen("tcp", LISTEN_ADDR)
 
 	// accept connection on port
 	conn, _ := ln.Accept()
@@ -112,17 +115,17 @@ func main() {
 			continue
 		}
 
-		//fmt.Println()
-		//var timestamp time.Time
-		//if reflect.DeepEqual(message[1:7], MAGIC_MLAT_TIMESTAMP) {
-		//  fmt.Println("FROM MLAT")
-		//  //otimestamp := parseTime(message[1:7])
-		//  //fmt.Println(otimestamp)
-		//  timestamp = time.Now()
-		//} else {
-		//  timestamp = parseTime(message[1:7])
-		//}
-		//fmt.Println(timestamp)
+		fmt.Println()
+		var timestamp time.Time
+		if reflect.DeepEqual(message[1:7], MAGIC_MLAT_TIMESTAMP) {
+		  //fmt.Println("FROM MLAT")
+		  //otimestamp := parseTime(message[1:7])
+		  //fmt.Println(otimestamp)
+		  //timestamp = time.Now()
+		} else {
+		  timestamp = parseTime(message[1:7])
+			fmt.Println(timestamp)
+		}
 		switch msgType {
 		//case 0x31:
 		//  fmt.Println("Type 1 Mode-AC")
@@ -148,33 +151,33 @@ func main() {
 		//fmt.Println()
 
 		for _, aircraft := range known_aircraft {
-			if time.Since(aircraft.lastSeen) > (time.Duration(30) * time.Second) {
+			if time.Since(aircraft.lastPing) > (time.Duration(30) * time.Second) {
 				continue
 			}
 
-			if aircraft.callsign != "" || (aircraft.latitude != math.MaxFloat64 &&
-				aircraft.longitude != math.MaxFloat64) ||
-				aircraft.altitude != math.MaxInt32 {
+			aircraftHasLocation := (aircraft.latitude != math.MaxFloat64 &&
+				aircraft.longitude != math.MaxFloat64)
+			aircraftHasAltitude := aircraft.altitude != math.MaxInt32
+
+			if aircraft.callsign != "" || aircraftHasLocation || aircraftHasAltitude {
 				var sLatLon string
 				var sAlt string
-				var since string
 
-				if aircraft.latitude != math.MaxFloat64 &&
-					aircraft.longitude != math.MaxFloat64 {
+				if aircraftHasLocation {
 					sLatLon = fmt.Sprintf("%f,%f", aircraft.latitude, aircraft.longitude)
 				} else {
 					sLatLon = "---.------,---.------"
 				}
-				if aircraft.altitude != math.MaxInt32 {
+				if aircraftHasAltitude {
 					sAlt = fmt.Sprintf("%d", aircraft.altitude)
 				} else {
 					sAlt = "-----"
 				}
-				tSince := time.Since(aircraft.lastSeen)
-				since = fmt.Sprintf("%v", tSince)
-				fmt.Printf("%06x\t%8s\t%s\t%s\t%s\n",
+				tPing := time.Since(aircraft.lastPing)
+				tPos := time.Since(aircraft.lastPos)
+				fmt.Printf("%06x\t%8s\t%s\t%s\t%v\t%v\n",
 					aircraft.icaoAddr, aircraft.callsign,
-					sLatLon, sAlt, since)
+					sLatLon, sAlt, tPing, tPos)
 			}
 		}
 		fmt.Println()
@@ -240,11 +243,11 @@ func parseModeS(message []byte, known_aircraft map[uint32]Aircraft) {
 			aircraft.oRawLon = math.MaxUint32
 			aircraft.eRawLat = math.MaxUint32
 			aircraft.eRawLon = math.MaxUint32
-			aircraft.latitude = math.MaxFloat32
-			aircraft.longitude = math.MaxFloat32
+			aircraft.latitude = math.MaxFloat64
+			aircraft.longitude = math.MaxFloat64
 			aircraft.altitude = math.MaxInt32
 		}
-		aircraft.lastSeen = time.Now()
+		aircraft.lastPing = time.Now()
 	}
 	//fmt.Println(aircraft)
 	//fmt.Println(aircraft_exists)
@@ -255,17 +258,22 @@ func parseModeS(message []byte, known_aircraft map[uint32]Aircraft) {
 
 		if (altCode & 0x0040) > 0 {
 			// meters
+			// TODO
+			fmt.Println("meters")
 
 		} else if (altCode & 0x0010) > 0 {
 			// feet, raw integer
 			ac := (altCode&0x1F80)>>2 + (altCode&0x0020)>>1 + (altCode & 0x000F)
 			altitude = int32((ac * 25) - 1000)
+			// TODO
+			fmt.Println("int")
 
 		} else if (altCode & 0x0010) == 0 {
 			// feet, Gillham coded
-			altitude = parseGillhamAlt(altCode)
+			// TODO
+			fmt.Println("gillham")
 		}
-		//fmt.Printf("Alt: %d\n", alt)
+
 		if altitude != math.MaxInt32 {
 			aircraft.altitude = altitude
 		}
@@ -288,118 +296,24 @@ func parseTime(timebytes []byte) time.Time {
 
 	upper := []byte{
 		timebytes[0]<<2 + timebytes[1]>>6,
-		timebytes[1]<<2 + timebytes[2]>>6}
+		timebytes[1]<<2 + timebytes[2]>>6,
+		0, 0, 0, 0}
 	lower := []byte{
 		timebytes[2] & 0x3F, timebytes[3], timebytes[4], timebytes[5]}
 
-	//for i:= 0; i < len(upper); i++ {
-	//  fmt.Printf("%#02x, ", upper[i])
-	//}
-	//fmt.Print("\n")
-	//for i:= 0; i < len(lower); i++ {
-	//  fmt.Printf("%#02x, ", lower[i])
-	//}
-	//fmt.Print("\n")
-
+	// the 48bit timestamp is 18bit day seconds | 30bit nanoseconds
 	daySeconds := binary.BigEndian.Uint16(upper)
 	nanoSeconds := int(binary.BigEndian.Uint32(lower))
 
-	hr := int(daySeconds / 3600)
+	hr :=  int(daySeconds / 3600)
 	min := int(daySeconds / 60 % 60)
 	sec := int(daySeconds % 60)
 
-	//fmt.Print("\n")
-	//fmt.Println(daySeconds)
-	//fmt.Println(nanoSeconds)
-	//fmt.Println(hr)
-	//fmt.Println(min)
-	//fmt.Println(sec)
-
-	localDate := time.Now()
-
-	utcDate := localDate.UTC()
-
-	//var t time.Time
-	//if (utcDate != localDate) && (hr == localDate.Hour()) {
-	//  t = time.Date(
-	//    localDate.Year(), localDate.Month(), localDate.Day(),
-	//    hr, min, sec, nanoSeconds, time.Local)
-	//} else {
-	//  t = time.Date(
-	//    utcDate.Year(), utcDate.Month(), utcDate.Day(),
-	//    hr, min, sec, nanoSeconds, time.UTC)
-	//}
-	//return t
+	utcDate := time.Now().UTC()
 
 	return time.Date(
 		utcDate.Year(), utcDate.Month(), utcDate.Day(),
 		hr, min, sec, nanoSeconds, time.UTC)
-}
-
-func parseGillhamAlt(inAlt uint16) int32 {
-	onehundreds := uint(0)
-	fivehundreds := uint(0)
-
-	gAlt := uint32(inAlt)
-
-	if (gAlt&0xFFFF8889) > 0 || (gAlt&0x000000F0) == 0 {
-		return -9999
-	}
-
-	if (gAlt & 0x0010) > 0 {
-		onehundreds ^= 0x007
-	} // C1
-	if (gAlt & 0x0020) > 0 {
-		onehundreds ^= 0x003
-	} // C2
-	if (gAlt & 0x0040) > 0 {
-		onehundreds ^= 0x001
-	} // C4
-
-	// Remove 7s from onehundreds (Make 7->5, snd 5->7).
-	if (onehundreds & 5) == 5 {
-		onehundreds ^= 2
-	}
-
-	// Check for invalid codes, only 1 to 5 are valid
-	if onehundreds > 5 {
-		return -9999
-	}
-
-	//if (gAlt & 0x0001) > 0 {fivehundreds ^= 0x1FF;} // D1 never used for altitude
-	if (gAlt & 0x0002) > 0 {
-		fivehundreds ^= 0x0FF
-	} // D2
-	if (gAlt & 0x0004) > 0 {
-		fivehundreds ^= 0x07F
-	} // D4
-
-	if (gAlt & 0x1000) > 0 {
-		fivehundreds ^= 0x03F
-	} // A1
-	if (gAlt & 0x2000) > 0 {
-		fivehundreds ^= 0x01F
-	} // A2
-	if (gAlt & 0x4000) > 0 {
-		fivehundreds ^= 0x00F
-	} // A4
-
-	if (gAlt & 0x0100) > 0 {
-		fivehundreds ^= 0x007
-	} // B1
-	if (gAlt & 0x0200) > 0 {
-		fivehundreds ^= 0x003
-	} // B2
-	if (gAlt & 0x0400) > 0 {
-		fivehundreds ^= 0x001
-	} // B4
-
-	// Correct order of onehundreds.
-	if (fivehundreds & 1) > 0 {
-		onehundreds = 6 - onehundreds
-	}
-
-	return ((int32(fivehundreds) * 5) + int32(onehundreds) - 13)
 }
 
 func decodeExtendedSquitter(message []byte, linkFmt uint,
@@ -448,19 +362,28 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
 		var fltByte [8]byte
 
 		if chars1 != 0 && chars2 != 0 {
+			// Flush the buffered raw bits into the representative 8 char string
+
 			fltByte[3] = AIS_CHARSET[chars1&0x3F]
 			chars1 >>= 6
+
 			fltByte[2] = AIS_CHARSET[chars1&0x3F]
 			chars1 >>= 6
+
 			fltByte[1] = AIS_CHARSET[chars1&0x3F]
 			chars1 >>= 6
+
 			fltByte[0] = AIS_CHARSET[chars1&0x3F]
+
 			fltByte[7] = AIS_CHARSET[chars2&0x3F]
 			chars2 >>= 6
+
 			fltByte[6] = AIS_CHARSET[chars2&0x3F]
 			chars2 >>= 6
+
 			fltByte[5] = AIS_CHARSET[chars2&0x3F]
 			chars2 >>= 6
+
 			fltByte[4] = AIS_CHARSET[chars2&0x3F]
 
 			callsign = string(fltByte[:8])
@@ -477,19 +400,25 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
 		raw_longitude = uint32(message[8])&1<<16 + uint32(message[9])<<8 +
 			uint32(message[10])
 
-	case 0, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 21, 22:
-		//ac12Data := (uint(message[5]) << 4) + (uint(message[6]) >> 4) & 0x0FFF
+	case 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 21, 22:
+		// Airborne position
+
+		ac12Data := (uint(message[5]) << 4) + (uint(message[6]) >> 4) & 0x0FFF
 		if msgType != 0 {
 			raw_latitude = uint32(message[6])&3<<15 + uint32(message[7])<<7 +
 				uint32(message[8])>>1
 			raw_longitude = uint32(message[8])&1<<16 + uint32(message[9])<<8 +
 				uint32(message[10])
 		}
+		if msgType != 20 && msgType != 21 && msgType != 22 {
+			//altitude :=
+			fmt.Printf("ac12: %#04x\n", ac12Data)
+		}
 	}
 
 	if (raw_latitude != math.MaxUint32) && (raw_longitude != math.MaxUint32) {
-		tFlag := (uint8(message[6]) & 8) == 8
-		isOddFrame := (uint8(message[6]) & 4) == 4
+		tFlag := (byte(message[6]) & 8) == 8
+		isOddFrame := (byte(message[6]) & 4) == 4
 
 		if isOddFrame && aircraft.eRawLat != math.MaxUint32 && aircraft.eRawLon != math.MaxUint32 {
 			// Odd frame and we have previous even frame data
@@ -522,9 +451,10 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
 	if callsign != "" {
 		aircraft.callsign = callsign
 	}
-	if latitude != math.MaxFloat32 && longitude != math.MaxFloat32 {
+	if latitude != math.MaxFloat64 && longitude != math.MaxFloat64 {
 		aircraft.latitude = latitude
 		aircraft.longitude = longitude
+		aircraft.lastPos = time.Now()
 	}
 	return aircraft
 }
@@ -533,7 +463,7 @@ func parseRawLatLon(evenLat uint32, evenLon uint32, oddLat uint32,
 	oddLon uint32, lastOdd bool, tFlag bool) (latitude float64, longitude float64) {
 	if evenLat == math.MaxUint32 || oddLat == math.MaxUint32 ||
 		oddLat == math.MaxUint32 || oddLon == math.MaxUint32 {
-		return math.MaxFloat32, math.MaxFloat32
+		return math.MaxFloat64, math.MaxFloat64
 	}
 
 	//fmt.Printf("Parsing: %d,%d + %d,%d\n", evenLat, evenLon, oddLat, oddLon)
@@ -561,7 +491,7 @@ func parseRawLatLon(evenLat uint32, evenLon uint32, oddLat uint32,
 	nlOdd := cprNLFunction(rlatOdd)
 
 	if nlEven != nlOdd {
-		return math.MaxFloat32, math.MaxFloat32
+		return math.MaxFloat64, math.MaxFloat64
 	}
 
 	//fmt.Println("NL(0): ", nlEven)
@@ -621,10 +551,11 @@ type Aircraft struct {
 	longitude float64
 	altitude  int32
 
-	lastSeen time.Time
+	lastPing time.Time
+	lastPos  time.Time
 }
 
-func cprNLFunction(lat float64) uint8 {
+func cprNLFunction(lat float64) byte {
 	if lat < 0 {
 		lat = -lat
 	}
@@ -749,8 +680,8 @@ func cprNLFunction(lat float64) uint8 {
 		return 1
 	}
 }
-func cprNFunction(lat float64, fflag bool) uint8 {
-	var t uint8
+func cprNFunction(lat float64, fflag bool) byte {
+	var t byte
 	if fflag {
 		t = 1
 	} else {
