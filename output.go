@@ -32,6 +32,7 @@ func durationSecondsElapsed(since time.Duration) string {
 }
 
 func printAircraftTable(known_aircraft *aircraftMap) {
+	fmt.Println("ICAO  \tCallsign\tLocation\t\tAlt\tDistance")
 
 	sortedAircraft := make(aircraftList, 0, len(*known_aircraft))
 

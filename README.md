@@ -52,7 +52,26 @@ somewhere like `/usr/local/bin/`.
    ```
 
    will pipe the appropriate network data in and you should see some basic
-   aircraft output, not unlike dump1090’s "interactive mode".
+   aircraft output, not unlike dump1090’s "interactive mode":
+
+   ```
+   ICAO  	Callsign	Location		Alt	Distance
+   a64d4d	        	40.631104,-73.874329	2450	5.36
+   a7ad0d	JBU839  	40.519043,-73.865479	7050	11.89
+   a03765	AAL125  	40.630646,-73.726013	9450	12.54
+   0c6030	BWA17   	40.460999,-73.608704	4875	23.59
+   aa4252	        	40.957535,-74.260986?	21425	25.09?	  27…
+   ae0449	BALSA76 	40.287689,-73.836365	35000	27.59
+   ac7b1b	JBU1503 	40.431381,-73.503662	13650	29.22
+   a099a7	        	40.865204,-73.195496?	18800	41.96?	  22…
+   a9f2c6	        	40.313828,-73.042053	22750	54.23
+   acc6d1	AAL1313 	40.804138,-72.314026	30850	86.49
+   ```
+
+   Output is streamed constantly (TODO: better printing to screen without
+   filling console buffers). Aircraft with location data older than 10 seconds
+   are marked with a `?`, and a timer eventually appears. Old aircraft (45sec)
+   are discarded from the on-screen list.
 
 ## Further Reading
 
