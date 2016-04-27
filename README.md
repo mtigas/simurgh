@@ -9,6 +9,12 @@ and an excuse to learn Go. Don't use this for anything real.
 
 ## Building / Installation
 
+You need [Go](https://golang.org/). Download & set it up [using the instructions here](https://golang.org/doc/install);
+minimally, you need to install the Go tools (and the tools in your `$PATH`)
+and ensure that you have a `$GOPATH` set.
+
+Then:
+
 ```
 go get github.com/mtigas/simurgh
 ```
