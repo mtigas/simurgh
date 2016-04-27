@@ -127,7 +127,7 @@ func main() {
 			continue
 		}
 
-		fmt.Println()
+		//fmt.Println()
 		var timestamp time.Time
 		if reflect.DeepEqual(message[1:7], magicTimestampMLAT) {
 			//fmt.Println("FROM MLAT")

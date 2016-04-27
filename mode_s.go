@@ -17,7 +17,7 @@ package main
 
 import (
 	"encoding/binary"
-	"fmt"
+	//"fmt"
 	"math"
 	"time"
 )
@@ -101,7 +101,7 @@ func parseModeS(message []byte, known_aircraft *aircraftMap) {
 		if (altCode & 0x0040) > 0 {
 			// meters
 			// TODO
-			fmt.Println("meters")
+			//fmt.Println("meters")
 
 		} else if (altCode & 0x0010) > 0 {
 			// feet, raw integer
@@ -113,7 +113,7 @@ func parseModeS(message []byte, known_aircraft *aircraftMap) {
 		} else if (altCode & 0x0010) == 0 {
 			// feet, Gillham coded
 			// TODO
-			fmt.Println("gillham")
+			//fmt.Println("gillham")
 		}
 
 		if altitude != math.MaxInt32 {

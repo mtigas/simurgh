@@ -68,8 +68,7 @@ somewhere like `/usr/local/bin/`.
    acc6d1  AAL1313     40.804138,-72.314026    30850   86.49
    ```
 
-   Output is streamed constantly (TODO: better printing to screen without
-   filling console buffers). Aircraft with location data older than 10 seconds
+   Output is updated constantly. Aircraft with location data older than 10sec
    are marked with a `?`, and a timer eventually appears. Old aircraft (45sec)
    are discarded from the on-screen list.
 
