@@ -86,7 +86,7 @@ func parseModeS(message []byte, isMlat bool, known_aircraft *aircraftMap) {
 				longitude: math.MaxFloat64,
 				altitude:  math.MaxInt32,
 				callsign:  "",
-			  mlat: isMlat}
+				mlat:      isMlat}
 		} else {
 			aircraft = (*ptrAircraft)
 			aircraft.mlat = isMlat

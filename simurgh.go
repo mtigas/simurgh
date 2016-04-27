@@ -52,38 +52,37 @@ func main() {
 
 	fmt.Println("Launching server...")
 
+	// Primary program state; a big hash table of seen aircraft (pointers)
 	known_aircraft := make(aircraftMap)
 
+	// Start our server
 	server, _ := net.Listen("tcp", *listenAddr)
-
 	conns := startServer(server)
 
-
-
-	ticker := time.NewTicker(500*time.Millisecond)
+	// Refresh our console output every 500ms.
+	ticker := time.NewTicker(500 * time.Millisecond)
 	quit := make(chan struct{})
 	go func() {
-	    for {
-	       select {
-	        case <- ticker.C:
-	            printAircraftTable(&known_aircraft)
-	        case <- quit:
-	            ticker.Stop()
-	            return
-	        }
-	    }
-	 }()
+		for {
+			select {
+			case <-ticker.C:
+				printAircraftTable(&known_aircraft)
+			case <-quit:
+				ticker.Stop()
+				return
+			}
+		}
+	}()
 
-
+	// Handle connections to the server
 	for {
 		go handleConnection(<-conns, &known_aircraft)
 	}
-
 }
 
 func startServer(listener net.Listener) chan net.Conn {
 	ch := make(chan net.Conn)
-	i := 0
+	//i := 0
 	go func() {
 		for {
 			client, _ := listener.Accept()
@@ -91,7 +90,7 @@ func startServer(listener net.Listener) chan net.Conn {
 				//fmt.Println("couldn't accept: ", err)
 				continue
 			}
-			i++
+			//i++
 			//mt.Printf("%d: %v <-> %v\n", i, client.LocalAddr(), client.RemoteAddr())
 			ch <- client
 		}
@@ -103,17 +102,23 @@ func handleConnection(conn net.Conn, known_aircraft *aircraftMap) {
 	reader := bufio.NewReader(conn)
 
 	var buffered_message []byte
-	// listen to this connection forever
+
+	// keep the connection alive as long as the client keeps it alive
 	for {
+		// Note this means `message` does not include 0x1A start byte; it
+		// contains the 0x1A start byte of the _next_ message.
 		current_message, _ := reader.ReadBytes(0x1A)
+
 		//if err != nil {
 		//	fmt.Println("ERR:", err)
 		//}
-		// Note `message` does not include 0x1A start byte b/c ReadBytes behavior
 
+		// Connection has closed
 		if len(current_message) == 0 {
 			break
 		}
+
+		// TODO fix order of the next two blocks
 
 		// Add to our own buffer (or create it)
 		if buffered_message == nil {
@@ -122,17 +127,17 @@ func handleConnection(conn net.Conn, known_aircraft *aircraftMap) {
 			buffered_message = append(buffered_message, current_message...)
 		}
 
-		// Are we on a *real* "message start" boundary? Then we're done
-		// with our buffer.
+		// Is this next msg a valid msg? (Check the initial 'message type' byte)
+		// If it is, then process the concatenated message we've buffered.
 		parseBuffer := false
 		if current_message[0] == 0x31 || current_message[0] == 0x32 ||
 			current_message[0] == 0x33 || current_message[0] == 0x34 {
 			parseBuffer = true
 		}
-
 		if !parseBuffer {
 			continue
 		}
+
 		message := buffered_message
 		buffered_message = nil
 

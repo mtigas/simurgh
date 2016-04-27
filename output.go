@@ -45,9 +45,9 @@ func printAircraftTable(known_aircraft *aircraftMap) {
 
 	for _, aircraft := range sortedAircraft {
 		/*
-		if time.Since(aircraft.lastPos) > (time.Duration(45) * time.Second) {
-			continue
-		}
+			if time.Since(aircraft.lastPos) > (time.Duration(45) * time.Second) {
+				continue
+			}
 		*/
 		stale := (time.Since(aircraft.lastPos) > (time.Duration(10) * time.Second))
 		extraStale := (time.Since(aircraft.lastPos) > (time.Duration(20) * time.Second))
@@ -56,11 +56,9 @@ func printAircraftTable(known_aircraft *aircraftMap) {
 			aircraft.longitude != math.MaxFloat64)
 		aircraftHasAltitude := aircraft.altitude != math.MaxInt32
 
-		/*
-		if !aircraftHasLocation {
-			continue
-		}
-		*/
+		//if !aircraftHasLocation {
+		//	continue
+		//}
 
 		if aircraft.callsign != "" || aircraftHasLocation || aircraftHasAltitude {
 			var sLatLon string
