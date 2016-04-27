@@ -59,9 +59,26 @@ func main() {
 	conns := startServer(server)
 
 
+
+	ticker := time.NewTicker(500*time.Millisecond)
+	quit := make(chan struct{})
+	go func() {
+	    for {
+	       select {
+	        case <- ticker.C:
+	            printAircraftTable(&known_aircraft)
+	        case <- quit:
+	            ticker.Stop()
+	            return
+	        }
+	    }
+	 }()
+
+
 	for {
 		go handleConnection(<-conns, &known_aircraft)
 	}
+
 }
 
 func startServer(listener net.Listener) chan net.Conn {
@@ -69,13 +86,13 @@ func startServer(listener net.Listener) chan net.Conn {
 	i := 0
 	go func() {
 		for {
-			client, err := listener.Accept()
+			client, _ := listener.Accept()
 			if client == nil {
-				fmt.Println("couldn't accept: ", err)
+				//fmt.Println("couldn't accept: ", err)
 				continue
 			}
 			i++
-			fmt.Printf("%d: %v <-> %v\n", i, client.LocalAddr(), client.RemoteAddr())
+			//mt.Printf("%d: %v <-> %v\n", i, client.LocalAddr(), client.RemoteAddr())
 			ch <- client
 		}
 	}()
@@ -88,10 +105,10 @@ func handleConnection(conn net.Conn, known_aircraft *aircraftMap) {
 	var buffered_message []byte
 	// listen to this connection forever
 	for {
-		current_message, err := reader.ReadBytes(0x1A)
-		if err != nil {
-			fmt.Println("ERR:", err)
-		}
+		current_message, _ := reader.ReadBytes(0x1A)
+		//if err != nil {
+		//	fmt.Println("ERR:", err)
+		//}
 		// Note `message` does not include 0x1A start byte b/c ReadBytes behavior
 
 		if len(current_message) == 0 {
@@ -186,6 +203,6 @@ func handleConnection(conn net.Conn, known_aircraft *aircraftMap) {
 		parseModeS(msgContent, isMlat, known_aircraft)
 		//fmt.Println()
 
-		printAircraftTable(known_aircraft)
+		//printAircraftTable(known_aircraft)
 	}
 }
