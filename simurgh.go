@@ -52,19 +52,41 @@ func main() {
 
 	fmt.Println("Launching server...")
 
-	// listen on all interfaces
-	ln, _ := net.Listen("tcp", *listenAddr)
+	known_aircraft := make(aircraftMap)
 
-	// accept connection on port
-	conn, _ := ln.Accept()
+	server, _ := net.Listen("tcp", *listenAddr)
 
+	conns := startServer(server)
+
+
+	for {
+		go handleConnection(<-conns, &known_aircraft)
+	}
+}
+
+func startServer(listener net.Listener) chan net.Conn {
+	ch := make(chan net.Conn)
+	i := 0
+	go func() {
+		for {
+			client, err := listener.Accept()
+			if client == nil {
+				fmt.Println("couldn't accept: ", err)
+				continue
+			}
+			i++
+			fmt.Printf("%d: %v <-> %v\n", i, client.LocalAddr(), client.RemoteAddr())
+			ch <- client
+		}
+	}()
+	return ch
+}
+
+func handleConnection(conn net.Conn, known_aircraft *aircraftMap) {
 	reader := bufio.NewReader(conn)
 
 	var buffered_message []byte
-
-	known_aircraft := make(aircraftMap)
-
-	// run loop forever (or until ctrl-c)
+	// listen to this connection forever
 	for {
 		current_message, err := reader.ReadBytes(0x1A)
 		if err != nil {
@@ -129,7 +151,8 @@ func main() {
 
 		//fmt.Println()
 		var timestamp time.Time
-		if reflect.DeepEqual(message[1:7], magicTimestampMLAT) {
+		isMlat := reflect.DeepEqual(message[1:7], magicTimestampMLAT)
+		if isMlat {
 			//fmt.Println("FROM MLAT")
 			//otimestamp := parseTime(message[1:7])
 			//fmt.Println(otimestamp)
@@ -160,10 +183,9 @@ func main() {
 		//}
 		//fmt.Println()
 
-		parseModeS(msgContent, &known_aircraft)
+		parseModeS(msgContent, isMlat, known_aircraft)
 		//fmt.Println()
 
-		printAircraftTable(&known_aircraft)
+		printAircraftTable(known_aircraft)
 	}
-
 }

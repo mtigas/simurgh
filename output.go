@@ -33,7 +33,7 @@ func durationSecondsElapsed(since time.Duration) string {
 
 func printAircraftTable(known_aircraft *aircraftMap) {
 	fmt.Print("\x1b[H\x1b[2J")
-	fmt.Println("ICAO  \tCallsign\tLocation\t\tAlt\tDistance")
+	fmt.Println("ICAO  \tCallsign\tLocation\t\tAlt\tDistance   Time")
 
 	sortedAircraft := make(aircraftList, 0, len(*known_aircraft))
 
@@ -44,9 +44,11 @@ func printAircraftTable(known_aircraft *aircraftMap) {
 	sort.Sort(sortedAircraft)
 
 	for _, aircraft := range sortedAircraft {
+		/*
 		if time.Since(aircraft.lastPos) > (time.Duration(45) * time.Second) {
 			continue
 		}
+		*/
 		stale := (time.Since(aircraft.lastPos) > (time.Duration(10) * time.Second))
 		extraStale := (time.Since(aircraft.lastPos) > (time.Duration(20) * time.Second))
 
@@ -54,9 +56,11 @@ func printAircraftTable(known_aircraft *aircraftMap) {
 			aircraft.longitude != math.MaxFloat64)
 		aircraftHasAltitude := aircraft.altitude != math.MaxInt32
 
+		/*
 		if !aircraftHasLocation {
 			continue
 		}
+		*/
 
 		if aircraft.callsign != "" || aircraftHasLocation || aircraftHasAltitude {
 			var sLatLon string
@@ -76,21 +80,28 @@ func printAircraftTable(known_aircraft *aircraftMap) {
 			distance := greatcircle(aircraft.latitude, aircraft.longitude,
 				*baseLat, *baseLon)
 
+			isMlat := ""
+			if aircraft.mlat {
+				isMlat = "^"
+			}
+
 			//tPing := time.Since(aircraft.lastPing)
 			tPos := time.Since(aircraft.lastPos)
 
 			if !stale && !extraStale {
-				fmt.Printf("%06x\t%8s\t%s\t%s\t%3.2f\n",
+				fmt.Printf("%06x\t%8s\t%s%s\t%s\t%3.2f\t%s\n",
 					aircraft.icaoAddr, aircraft.callsign,
-					sLatLon, sAlt, metersInMiles(distance))
+					sLatLon, isMlat, sAlt, metersInMiles(distance),
+					durationSecondsElapsed(tPos))
 			} else if stale && !extraStale {
-				fmt.Printf("%06x\t%8s\t%s?\t%s\t%3.2f?\n",
+				fmt.Printf("%06x\t%8s\t%s%s?\t%s\t%3.2f?\t%s\n",
 					aircraft.icaoAddr, aircraft.callsign,
-					sLatLon, sAlt, metersInMiles(distance))
+					sLatLon, isMlat, sAlt, metersInMiles(distance),
+					durationSecondsElapsed(tPos))
 			} else if extraStale {
-				fmt.Printf("%06x\t%8s\t%s?\t%s\t%3.2f?\t%s…\n",
+				fmt.Printf("%06x\t%8s\t%s%s?\t%s\t%3.2f?\t%s…\n",
 					aircraft.icaoAddr, aircraft.callsign,
-					sLatLon, sAlt, metersInMiles(distance),
+					sLatLon, isMlat, sAlt, metersInMiles(distance),
 					durationSecondsElapsed(tPos))
 			}
 		}

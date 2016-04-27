@@ -37,6 +37,8 @@ type Aircraft struct {
 
 	lastPing time.Time
 	lastPos  time.Time
+
+	mlat bool
 }
 type aircraftList []*Aircraft
 type aircraftMap map[uint32]*Aircraft

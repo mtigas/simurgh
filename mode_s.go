@@ -22,7 +22,7 @@ import (
 	"time"
 )
 
-func parseModeS(message []byte, known_aircraft *aircraftMap) {
+func parseModeS(message []byte, isMlat bool, known_aircraft *aircraftMap) {
 	// https://en.wikipedia.org/wiki/Secondary_surveillance_radar#Mode_S
 	// https://github.com/mutability/dump1090/blob/master/mode_s.c
 	linkFmt := uint((message[0] & 0xF8) >> 3)
@@ -85,9 +85,11 @@ func parseModeS(message []byte, known_aircraft *aircraftMap) {
 				latitude:  math.MaxFloat64,
 				longitude: math.MaxFloat64,
 				altitude:  math.MaxInt32,
-				callsign:  ""}
+				callsign:  "",
+			  mlat: isMlat}
 		} else {
 			aircraft = (*ptrAircraft)
+			aircraft.mlat = isMlat
 		}
 		aircraft.lastPing = time.Now()
 	}
