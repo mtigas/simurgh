@@ -21,7 +21,7 @@ import (
 	"time"
 )
 
-type Aircraft struct {
+type aircraftData struct {
 	icaoAddr uint32
 
 	callsign string
@@ -40,8 +40,8 @@ type Aircraft struct {
 
 	mlat bool
 }
-type aircraftList []*Aircraft
-type aircraftMap map[uint32]*Aircraft
+type aircraftList []*aircraftData
+type aircraftMap map[uint32]*aircraftData
 
 func (a aircraftList) Len() int {
 	return len(a)
@@ -61,24 +61,17 @@ func (a aircraftList) Less(i, j int) bool {
 			return true
 		} else if a[i].latitude == math.MaxFloat64 && a[j].latitude != math.MaxFloat64 {
 			return false
-		} else {
-			return sortAircraftByCallsign(a, i, j)
 		}
+		return sortAircraftByCallsign(a, i, j)
 	} else if *sortMode == sortModeCallsign {
 		return sortAircraftByCallsign(a, i, j)
-	} else {
-		// ?
-		//return a[i].lastPos > a[j].lastPos
 	}
 	return false
 }
 
 func sortAircraftByDistance(a aircraftList, i, j int) bool {
-	dist_i := greatcircle(a[i].latitude, a[i].longitude,
-		*baseLat, *baseLon)
-	dist_j := greatcircle(a[j].latitude, a[j].longitude,
-		*baseLat, *baseLon)
-	return dist_i < dist_j
+	return greatcircle(a[i].latitude, a[i].longitude, *baseLat, *baseLon) <
+		greatcircle(a[j].latitude, a[j].longitude, *baseLat, *baseLon)
 }
 func sortAircraftByCallsign(a aircraftList, i, j int) bool {
 	if a[i].callsign != "" && a[j].callsign != "" {
@@ -87,9 +80,6 @@ func sortAircraftByCallsign(a aircraftList, i, j int) bool {
 		return true
 	} else if a[i].callsign == "" && a[j].callsign != "" {
 		return false
-	} else {
-		hexi := fmt.Sprintf("%06x", a[i].icaoAddr)
-		hexj := fmt.Sprintf("%06x", a[j].icaoAddr)
-		return hexi < hexj
 	}
+	return fmt.Sprintf("%06x", a[i].icaoAddr) < fmt.Sprintf("%06x", a[j].icaoAddr)
 }

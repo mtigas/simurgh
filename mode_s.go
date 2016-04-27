@@ -22,13 +22,13 @@ import (
 	"time"
 )
 
-func parseModeS(message []byte, isMlat bool, known_aircraft *aircraftMap) {
+func parseModeS(message []byte, isMlat bool, knownAircraft *aircraftMap) {
 	// https://en.wikipedia.org/wiki/Secondary_surveillance_radar#Mode_S
 	// https://github.com/mutability/dump1090/blob/master/mode_s.c
 	linkFmt := uint((message[0] & 0xF8) >> 3)
 
-	var aircraft Aircraft
-	var aircraft_exists bool
+	var aircraft aircraftData
+	var aircraftExists bool
 	icaoAddr := uint32(math.MaxUint32)
 	altCode := uint16(math.MaxUint16)
 	altitude := int32(math.MaxInt32)
@@ -72,11 +72,11 @@ func parseModeS(message []byte, isMlat bool, known_aircraft *aircraftMap) {
 	}
 
 	if icaoAddr != math.MaxUint32 {
-		var ptrAircraft *Aircraft
-		ptrAircraft, aircraft_exists = (*known_aircraft)[icaoAddr]
-		if !aircraft_exists {
+		var ptrAircraft *aircraftData
+		ptrAircraft, aircraftExists = (*knownAircraft)[icaoAddr]
+		if !aircraftExists {
 			// initialize some values
-			aircraft = Aircraft{
+			aircraft = aircraftData{
 				icaoAddr:  icaoAddr,
 				oRawLat:   math.MaxUint32,
 				oRawLon:   math.MaxUint32,
@@ -94,7 +94,7 @@ func parseModeS(message []byte, isMlat bool, known_aircraft *aircraftMap) {
 		aircraft.lastPing = time.Now()
 	}
 	//fmt.Println(aircraft)
-	//fmt.Println(aircraft_exists)
+	//fmt.Println(aircraftExists)
 
 	if linkFmt == 0 || linkFmt == 4 || linkFmt == 16 || linkFmt == 20 {
 		// Altitude: 13 bit signal
@@ -128,7 +128,7 @@ func parseModeS(message []byte, isMlat bool, known_aircraft *aircraftMap) {
 	}
 
 	if icaoAddr != math.MaxUint32 {
-		(*known_aircraft)[icaoAddr] = &aircraft
+		(*knownAircraft)[icaoAddr] = &aircraft
 	}
 	//fmt.Println(aircraft)
 }
@@ -160,8 +160,7 @@ func parseTime(timebytes []byte) time.Time {
 		hr, min, sec, nanoSeconds, time.UTC)
 }
 
-func decodeExtendedSquitter(message []byte, linkFmt uint,
-	aircraft *Aircraft) {
+func decodeExtendedSquitter(message []byte, linkFmt uint, aircraft *aircraftData) {
 
 	var callsign string
 
@@ -192,8 +191,8 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
 
 	//fmt.Printf("ext msg: %d\n", msgType)
 
-	raw_latitude := uint32(math.MaxUint32)
-	raw_longitude := uint32(math.MaxUint32)
+	rawLatitude := uint32(math.MaxUint32)
+	rawLongitude := uint32(math.MaxUint32)
 	latitude := float64(math.MaxFloat64)
 	longitude := float64(math.MaxFloat64)
 	altitude := int32(math.MaxInt32)
@@ -240,9 +239,9 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
 
 	case 5, 6, 7, 8:
 		// Ground position
-		raw_latitude = uint32(message[6])&3<<15 + uint32(message[7])<<7 +
+		rawLatitude = uint32(message[6])&3<<15 + uint32(message[7])<<7 +
 			uint32(message[8])>>1
-		raw_longitude = uint32(message[8])&1<<16 + uint32(message[9])<<8 +
+		rawLongitude = uint32(message[8])&1<<16 + uint32(message[9])<<8 +
 			uint32(message[10])
 
 	case 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 21, 22:
@@ -250,9 +249,9 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
 
 		ac12Data := (uint(message[5]) << 4) + (uint(message[6])>>4)&0x0FFF
 		if msgType != 0 {
-			raw_latitude = uint32(message[6])&3<<15 + uint32(message[7])<<7 +
+			rawLatitude = uint32(message[6])&3<<15 + uint32(message[7])<<7 +
 				uint32(message[8])>>1
-			raw_longitude = uint32(message[8])&1<<16 + uint32(message[9])<<8 +
+			rawLongitude = uint32(message[8])&1<<16 + uint32(message[9])<<8 +
 				uint32(message[10])
 		}
 		if msgType != 20 && msgType != 21 && msgType != 22 {
@@ -268,28 +267,28 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
 		}
 	}
 
-	if (raw_latitude != math.MaxUint32) && (raw_longitude != math.MaxUint32) {
+	if (rawLatitude != math.MaxUint32) && (rawLongitude != math.MaxUint32) {
 		tFlag := (byte(message[6]) & 8) == 8
 		isOddFrame := (byte(message[6]) & 4) == 4
 
 		if isOddFrame && aircraft.eRawLat != math.MaxUint32 && aircraft.eRawLon != math.MaxUint32 {
 			// Odd frame and we have previous even frame data
-			latitude, longitude = parseRawLatLon(aircraft.eRawLat, aircraft.eRawLon, raw_latitude, raw_longitude, isOddFrame, tFlag)
+			latitude, longitude = parseRawLatLon(aircraft.eRawLat, aircraft.eRawLon, rawLatitude, rawLongitude, isOddFrame, tFlag)
 			// Reset our buffer
 			aircraft.eRawLat = math.MaxUint32
 			aircraft.eRawLon = math.MaxUint32
 		} else if !isOddFrame && aircraft.oRawLat != math.MaxUint32 && aircraft.oRawLon != math.MaxUint32 {
 			// Even frame and we have previous odd frame data
-			latitude, longitude = parseRawLatLon(raw_latitude, raw_longitude, aircraft.oRawLat, aircraft.oRawLon, isOddFrame, tFlag)
+			latitude, longitude = parseRawLatLon(rawLatitude, rawLongitude, aircraft.oRawLat, aircraft.oRawLon, isOddFrame, tFlag)
 			// Reset buffer
 			aircraft.oRawLat = math.MaxUint32
 			aircraft.oRawLon = math.MaxUint32
 		} else if isOddFrame {
-			aircraft.oRawLat = raw_latitude
-			aircraft.oRawLon = raw_longitude
+			aircraft.oRawLat = rawLatitude
+			aircraft.oRawLon = rawLongitude
 		} else if !isOddFrame {
-			aircraft.eRawLat = raw_latitude
-			aircraft.eRawLon = raw_longitude
+			aircraft.eRawLat = rawLatitude
+			aircraft.eRawLon = rawLongitude
 		}
 	}
 

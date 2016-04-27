@@ -31,13 +31,13 @@ func durationSecondsElapsed(since time.Duration) string {
 	}
 }
 
-func printAircraftTable(known_aircraft *aircraftMap) {
+func printAircraftTable(knownAircraft *aircraftMap) {
 	fmt.Print("\x1b[H\x1b[2J")
 	fmt.Println("ICAO  \tCallsign\tLocation\t\tAlt\tDistance   Time")
 
-	sortedAircraft := make(aircraftList, 0, len(*known_aircraft))
+	sortedAircraft := make(aircraftList, 0, len(*knownAircraft))
 
-	for _, aircraft := range *known_aircraft {
+	for _, aircraft := range *knownAircraft {
 		sortedAircraft = append(sortedAircraft, aircraft)
 	}
 
