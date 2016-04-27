@@ -7,11 +7,23 @@ and an excuse to learn Go. Don't use this for anything real.
 
 © 2016 Mike Tigas. Licensed under the [GNU Affero General Public License](LICENSE). Some portions based on [dump1090-mutability](https://github.com/mutability/dump1090), licensed under the [GNU Public License v2](https://github.com/mutability/dump1090/blob/master/LICENSE).
 
+## Building / Installation
+
+```
+go get github.com/mtigas/simurgh
+```
+
+Now you'll have a binary at `$GOPATH/bin/simurgh`.
+
+Make sure `$GOPATH/bin` is on your `$PATH`, or copy `$GOPATH/bin/simurgh` to
+somewhere like `/usr/local/bin/`.
+
 ## Usage
 
 1. You need a `dump1090` server running.
 
-2. Run `go run server.go`. There are also some flags you can use:
+2. Launch the simurgh listener by running `simurgh`. There are also some flags
+   you can use:
 
    ```
    -baseLat float
@@ -24,7 +36,7 @@ and an excuse to learn Go. Don't use this for anything real.
        0: sort by time, 1: sort by distance, 3: sort by air (default 1)
    ```
 
-   i.e. `go run server.go --baseLat 40.68931 --baseLon "-74.04464"` if you're
+   i.e. `simurgh --baseLat 40.68931 --baseLon "-74.04464"` if you're
    receiving data from the Statue of Liberty(???)
 
 3. Given that `dump1090` is running on the same machine as this program,

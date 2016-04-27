@@ -20,13 +20,6 @@ import (
 	"fmt"
 	"math"
 	"time"
-
-/*
-	"github.com/mtigas/simurgh/aircraft"
-	"github.com/mtigas/simurgh/math"
-	"github.com/mtigas/simurgh/mode_s"
-	"github.com/mtigas/simurgh/output"
-*/
 )
 
 func parseModeS(message []byte, known_aircraft *aircraftMap) {
