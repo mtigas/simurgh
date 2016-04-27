@@ -17,19 +17,56 @@ package main
 
 import "bufio"
 import "encoding/binary"
+import "flag"
 import "fmt"
 import "math"
 import "net"
 import "os"
 import "reflect"
+import "sort"
 import "time"
 
 var MAGIC_MLAT_TIMESTAMP = []byte{0xFF, 0x00, 0x4D, 0x4C, 0x41, 0x54}
 
 const AIS_CHARSET = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?"
-const LISTEN_ADDR = "127.0.0.1:8081"
+
+
+var listenAddr = flag.String("bind", "127.0.0.1:8081", "\":port\" or \"ip:port\" to bind the server to")
+var baseLat = flag.Float64("baseLat", 40.77725, "latitude used for distance calculation")
+var baseLon = flag.Float64("baseLon", -73.872611, "longitude for distance calculation")
+
+const SORT_MODE_LASTPOS  = uint(0)
+const SORT_MODE_DISTANCE = uint(1)
+const SORT_MODE_CALLSIGN = uint(2)
+var sortMode = flag.Uint("sortMode", SORT_MODE_DISTANCE, "0: sort by time, 1: sort by distance, 3: sort by air")
+
+
+
+type Aircraft struct {
+	icaoAddr uint32
+
+	callsign string
+
+	eRawLat uint32
+	eRawLon uint32
+	oRawLat uint32
+	oRawLon uint32
+
+	latitude  float64
+	longitude float64
+	altitude  int32
+
+	lastPing time.Time
+	lastPos  time.Time
+}
+type aircraftList []*Aircraft
+type aircraftMap  map[uint32]*Aircraft
+
 
 func main() {
+	flag.Parse()
+
+
 	// test: http://www.lll.lu/~edward/edward/adsb/DecodingADSBposition.html
 	// parseRawLatLon(uint32(92095), uint32(39846), uint32(88385), uint32(125818), true, false)
 	// test: http://wiki.modesbeast.com/Radarcape:Firmware_Versions#The_GPS_timestamp
@@ -41,7 +78,7 @@ func main() {
 	fmt.Println("Launching server...")
 
 	// listen on all interfaces
-	ln, _ := net.Listen("tcp", LISTEN_ADDR)
+	ln, _ := net.Listen("tcp", *listenAddr)
 
 	// accept connection on port
 	conn, _ := ln.Accept()
@@ -50,7 +87,7 @@ func main() {
 
 	var buffered_message []byte
 
-	known_aircraft := make(map[uint32]Aircraft)
+	known_aircraft := make(aircraftMap)
 
 	// run loop forever (or until ctrl-c)
 	for {
@@ -124,7 +161,8 @@ func main() {
 		  //timestamp = time.Now()
 		} else {
 		  timestamp = parseTime(message[1:7])
-			fmt.Println(timestamp)
+			_ = timestamp
+			//fmt.Println(timestamp)
 		}
 		switch msgType {
 		//case 0x31:
@@ -147,45 +185,145 @@ func main() {
 		//}
 		//fmt.Println()
 
-		parseModeS(msgContent, known_aircraft)
+		parseModeS(msgContent, &known_aircraft)
 		//fmt.Println()
 
-		for _, aircraft := range known_aircraft {
-			if time.Since(aircraft.lastPing) > (time.Duration(30) * time.Second) {
-				continue
-			}
-
-			aircraftHasLocation := (aircraft.latitude != math.MaxFloat64 &&
-				aircraft.longitude != math.MaxFloat64)
-			aircraftHasAltitude := aircraft.altitude != math.MaxInt32
-
-			if aircraft.callsign != "" || aircraftHasLocation || aircraftHasAltitude {
-				var sLatLon string
-				var sAlt string
-
-				if aircraftHasLocation {
-					sLatLon = fmt.Sprintf("%f,%f", aircraft.latitude, aircraft.longitude)
-				} else {
-					sLatLon = "---.------,---.------"
-				}
-				if aircraftHasAltitude {
-					sAlt = fmt.Sprintf("%d", aircraft.altitude)
-				} else {
-					sAlt = "-----"
-				}
-				tPing := time.Since(aircraft.lastPing)
-				tPos := time.Since(aircraft.lastPos)
-				fmt.Printf("%06x\t%8s\t%s\t%s\t%v\t%v\n",
-					aircraft.icaoAddr, aircraft.callsign,
-					sLatLon, sAlt, tPing, tPos)
-			}
-		}
-		fmt.Println()
+		printAircraftTable(&known_aircraft)
 	}
 
 }
 
-func parseModeS(message []byte, known_aircraft map[uint32]Aircraft) {
+func (a aircraftList) Len() int {
+	return len(a)
+}
+func (a aircraftList) Swap(i, j int) {
+	a[i], a[j] = a[j], a[i]
+}
+
+
+func sortByDistance(a aircraftList, i, j int) bool {
+	dist_i := greatcircle(a[i].latitude, a[i].longitude,
+		*baseLat, *baseLon)
+	dist_j := greatcircle(a[j].latitude, a[j].longitude,
+		*baseLat, *baseLon)
+	return dist_i < dist_j
+}
+func sortByCallsign(a aircraftList, i, j int) bool {
+	if a[i].callsign != "" && a[j].callsign != "" {
+		return a[i].callsign < a[j].callsign
+	} else if a[i].callsign != "" && a[j].callsign == "" {
+		return true
+	} else if a[i].callsign == "" && a[j].callsign != "" {
+		return false
+	} else {
+		hexi := fmt.Sprintf("%06x", a[i].icaoAddr)
+		hexj := fmt.Sprintf("%06x", a[j].icaoAddr)
+		return hexi < hexj
+	}
+}
+
+
+func (a aircraftList) Less(i, j int) bool {
+	if *sortMode == SORT_MODE_LASTPOS {
+		// t1 later than t2 means that t1 is more recent
+		return a[i].lastPos.After(a[j].lastPos)
+
+	} else if *sortMode == SORT_MODE_DISTANCE {
+		if (a[i].latitude != math.MaxFloat64 && a[j].latitude != math.MaxFloat64) {
+			return sortByDistance(a, i, j)
+		} else if (a[i].latitude != math.MaxFloat64 && a[j].latitude == math.MaxFloat64) {
+			return true
+		} else if (a[i].latitude == math.MaxFloat64 && a[j].latitude != math.MaxFloat64) {
+			return false
+		} else {
+			return sortByCallsign(a, i, j)
+		}
+	} else if *sortMode == SORT_MODE_CALLSIGN {
+		return sortByCallsign(a, i, j)
+	} else {
+		// ?
+		//return a[i].lastPos > a[j].lastPos
+	}
+	return false
+}
+
+
+func printAircraftTable(known_aircraft *aircraftMap) {
+
+	sortedAircraft := make(aircraftList, 0, len(*known_aircraft))
+
+	for _, aircraft := range (*known_aircraft) {
+		sortedAircraft = append(sortedAircraft, aircraft)
+	}
+
+	sort.Sort(sortedAircraft)
+
+	for _, aircraft := range sortedAircraft {
+		if time.Since(aircraft.lastPos) > (time.Duration(45) * time.Second) {
+			continue
+		}
+		stale := (time.Since(aircraft.lastPos) > (time.Duration(10) * time.Second))
+		extraStale := (time.Since(aircraft.lastPos) > (time.Duration(20) * time.Second))
+
+		aircraftHasLocation := (aircraft.latitude != math.MaxFloat64 &&
+			aircraft.longitude != math.MaxFloat64)
+		aircraftHasAltitude := aircraft.altitude != math.MaxInt32
+
+		if !aircraftHasLocation {
+			continue
+		}
+
+		if aircraft.callsign != "" || aircraftHasLocation || aircraftHasAltitude {
+			var sLatLon string
+			var sAlt string
+
+			if aircraftHasLocation {
+				sLatLon = fmt.Sprintf("%f,%f", aircraft.latitude, aircraft.longitude)
+			} else {
+				sLatLon = "---.------,---.------"
+			}
+			if aircraftHasAltitude {
+				sAlt = fmt.Sprintf("%d", aircraft.altitude)
+			} else {
+				sAlt = "-----"
+			}
+
+			distance := greatcircle(aircraft.latitude, aircraft.longitude,
+				*baseLat, *baseLon)
+
+			//tPing := time.Since(aircraft.lastPing)
+			tPos := time.Since(aircraft.lastPos)
+
+			if !stale && !extraStale {
+				fmt.Printf("%06x\t%8s\t%s\t%s\t%3.2f\n",
+					aircraft.icaoAddr, aircraft.callsign,
+					sLatLon, sAlt, mtoMi(distance))
+			} else if stale && !extraStale{
+				fmt.Printf("%06x\t%8s\t%s?\t%s\t%3.2f?\n",
+					aircraft.icaoAddr, aircraft.callsign,
+					sLatLon, sAlt, mtoMi(distance))
+			} else if extraStale {
+				fmt.Printf("%06x\t%8s\t%s?\t%s\t%3.2f?\t%s…\n",
+					aircraft.icaoAddr, aircraft.callsign,
+					sLatLon, sAlt, mtoMi(distance),
+					durationSecondsElapsed(tPos))
+			}
+		}
+	}
+	fmt.Println()
+}
+
+func durationSecondsElapsed(since time.Duration) string {
+	sec := uint8(since.Seconds())
+	if sec == math.MaxUint8 {
+		return "-"
+	} else {
+		return fmt.Sprintf("%4d", sec)
+	}
+
+}
+
+func parseModeS(message []byte, known_aircraft *aircraftMap) {
 	// https://en.wikipedia.org/wiki/Secondary_surveillance_radar#Mode_S
 	// https://github.com/mutability/dump1090/blob/master/mode_s.c
 	linkFmt := uint((message[0] & 0xF8) >> 3)
@@ -235,17 +373,22 @@ func parseModeS(message []byte, known_aircraft map[uint32]Aircraft) {
 	}
 
 	if icaoAddr != math.MaxUint32 {
-		aircraft, aircraft_exists = known_aircraft[icaoAddr]
-		aircraft.icaoAddr = icaoAddr
+		var ptrAircraft *Aircraft
+		ptrAircraft, aircraft_exists = (*known_aircraft)[icaoAddr]
 		if !aircraft_exists {
 			// initialize some values
-			aircraft.oRawLat = math.MaxUint32
-			aircraft.oRawLon = math.MaxUint32
-			aircraft.eRawLat = math.MaxUint32
-			aircraft.eRawLon = math.MaxUint32
-			aircraft.latitude = math.MaxFloat64
-			aircraft.longitude = math.MaxFloat64
-			aircraft.altitude = math.MaxInt32
+			aircraft = Aircraft{
+				icaoAddr: icaoAddr,
+				oRawLat: math.MaxUint32,
+				oRawLon: math.MaxUint32,
+				eRawLat: math.MaxUint32,
+				eRawLon: math.MaxUint32,
+				latitude: math.MaxFloat64,
+				longitude: math.MaxFloat64,
+				altitude: math.MaxInt32,
+			  callsign: ""}
+		} else {
+			aircraft = (*ptrAircraft)
 		}
 		aircraft.lastPing = time.Now()
 	}
@@ -266,7 +409,7 @@ func parseModeS(message []byte, known_aircraft map[uint32]Aircraft) {
 			ac := (altCode&0x1F80)>>2 + (altCode&0x0020)>>1 + (altCode & 0x000F)
 			altitude = int32((ac * 25) - 1000)
 			// TODO
-			fmt.Println("int")
+			//fmt.Println("int altitude: ", altitude)
 
 		} else if (altCode & 0x0010) == 0 {
 			// feet, Gillham coded
@@ -280,13 +423,13 @@ func parseModeS(message []byte, known_aircraft map[uint32]Aircraft) {
 	}
 
 	if linkFmt == 17 || linkFmt == 18 {
-		aircraft = decodeExtendedSquitter(message, linkFmt, aircraft)
+		decodeExtendedSquitter(message, linkFmt, &aircraft)
 	}
 
 	if icaoAddr != math.MaxUint32 {
-		known_aircraft[icaoAddr] = aircraft
-		//fmt.Println(aircraft)
+		(*known_aircraft)[icaoAddr] = &aircraft
 	}
+	//fmt.Println(aircraft)
 }
 
 func parseTime(timebytes []byte) time.Time {
@@ -317,7 +460,7 @@ func parseTime(timebytes []byte) time.Time {
 }
 
 func decodeExtendedSquitter(message []byte, linkFmt uint,
-	aircraft Aircraft) Aircraft {
+	aircraft *Aircraft) {
 
 	var callsign string
 
@@ -352,6 +495,7 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
 	raw_longitude := uint32(math.MaxUint32)
 	latitude := float64(math.MaxFloat64)
 	longitude := float64(math.MaxFloat64)
+	altitude := int32(math.MaxInt32)
 
 	switch msgType {
 	case 1, 2, 3, 4:
@@ -412,7 +556,14 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
 		}
 		if msgType != 20 && msgType != 21 && msgType != 22 {
 			//altitude :=
-			fmt.Printf("ac12: %#04x\n", ac12Data)
+			//fmt.Printf("ac12: %#04x\n", ac12Data)
+			//fmt.Printf("ac12: %d\n", decodeAC12Field(ac12Data))
+
+			altitude = decodeAC12Field(ac12Data)
+
+		} else {
+			// "HAE" ac2-encoded altitude
+			// TODO
 		}
 	}
 
@@ -451,12 +602,14 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
 	if callsign != "" {
 		aircraft.callsign = callsign
 	}
+	if altitude != math.MaxInt32 {
+		aircraft.altitude = altitude
+	}
 	if latitude != math.MaxFloat64 && longitude != math.MaxFloat64 {
 		aircraft.latitude = latitude
 		aircraft.longitude = longitude
 		aircraft.lastPos = time.Now()
 	}
-	return aircraft
 }
 
 func parseRawLatLon(evenLat uint32, evenLon uint32, oddLat uint32,
@@ -537,23 +690,6 @@ func parseRawLatLon(evenLat uint32, evenLon uint32, oddLat uint32,
 	return outLat, outLon
 }
 
-type Aircraft struct {
-	icaoAddr uint32
-
-	callsign string
-
-	eRawLat uint32
-	eRawLon uint32
-	oRawLat uint32
-	oRawLon uint32
-
-	latitude  float64
-	longitude float64
-	altitude  int32
-
-	lastPing time.Time
-	lastPos  time.Time
-}
 
 func cprNLFunction(lat float64) byte {
 	if lat < 0 {
@@ -704,4 +840,45 @@ func cprDlonFunction(lat float64, fflag bool, surface bool) float64 {
 
 	return sfc / float64(cprNFunction(lat, fflag))
 
+}
+
+
+func decodeAC12Field(ac12Data uint) int32 {
+	q := (ac12Data & 0x10) == 0x10
+	if (q) {
+		n := int32((ac12Data & 0x0FE0) >> 1) + int32(ac12Data & 0x000F)
+		return (n*25) - 1000;
+	} else {
+		/* TODO
+		// Make N a 13 bit Gillham coded altitude by inserting M=0 at bit 6
+		int n = ((AC12Field & 0x0FC0) << 1) |
+						 (AC12Field & 0x003F);
+		n = ModeAToModeC(decodeID13Field(n));
+		if (n < -12) {
+				return INVALID_ALTITUDE;
+		}
+
+		return (100 * n);
+		*/
+		return int32(math.MaxInt32)
+	}
+}
+
+
+
+func greatcircle(lat0, lon0, lat1, lon1 float64) float64{
+    lat0 = lat0 * math.Pi / 180.0;
+    lon0 = lon0 * math.Pi / 180.0;
+    lat1 = lat1 * math.Pi / 180.0;
+    lon1 = lon1 * math.Pi / 180.0;
+
+    // avoid NaN
+    if (math.Abs(lat0 - lat1) < 0.0001 && math.Abs(lon0 - lon1) < 0.0001) {
+        return 0.0;
+			}
+
+    return 6371e3 * math.Acos(math.Sin(lat0) * math.Sin(lat1) + math.Cos(lat0) * math.Cos(lat1) * math.Cos(math.Abs(lon0 - lon1)));
+}
+func mtoMi(dist float64) float64 {
+	return dist/float64(1609.34721869)
 }

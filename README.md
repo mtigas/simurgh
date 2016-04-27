@@ -2,23 +2,41 @@
 
 A Mode-S "BEAST" TCP decoder server.
 
-© 2016 Mike Tigas. Licensed under the [GNU Affero General Public License](LICENSE).
+Mostly an experiment to understand the raw binary "BEAST" signal format,
+and an excuse to learn Go. Don't use this for anything real.
 
----
+© 2016 Mike Tigas. Licensed under the [GNU Affero General Public License](LICENSE). Some portions based on [dump1090-mutability](https://github.com/mutability/dump1090), licensed under the [GNU Public License v2](https://github.com/mutability/dump1090/blob/master/LICENSE).
 
-Mostly an experiment to get a better handle on the raw signal format (and also
-get better at Go).
+## Usage
 
-This is somewhat run-able by
+1. You need a `dump1090` server running.
 
-1. Having a `dump1090` server running
-2. Running `go run server.go` to run this
-3. `nc 127.0.0.1 30005 | nc 127.0.0.1 8081` to pipe data from the `dump1090`
-   BEAST output port into this
+2. Run `go run server.go`. There are also some flags you can use:
 
-(but this thing is pretty darn incomplete still)
+   ```
+   -baseLat float
+       latitude used for distance calculation (default 40.77725)
+   -baseLon float
+       longitude for distance calculation (default -73.872611)
+   -bind string
+       ":port" or "ip:port" to bind the server to (default "127.0.0.1:8081")
+   -sortMode uint
+       0: sort by time, 1: sort by distance, 3: sort by air (default 1)
+   ```
 
-## Notes
+   i.e. `go run server.go --baseLat 40.68931 --baseLon "-74.04464"` if you're
+   receiving data from the Statue of Liberty(???)
+
+3. Given that `dump1090` is running on the same machine as this program,
+
+   ```
+   nc 127.0.0.1 30005 | nc 127.0.0.1 8081
+   ```
+
+   will pipe the appropriate network data in and you should see some basic
+   aircraft output, not unlike dump1090’s "interactive mode".
+
+## Further Reading
 
 * [dump1090](https://github.com/mutability/dump1090) is one of several applications that accepts BEAST input (port `30004` or `31004`) and generates BEAST output (`30005`).
 * [Information about the data format](http://wiki.modesbeast.com/Mode-S_Beast:Data_Output_Formats) (see "Binary Format")
