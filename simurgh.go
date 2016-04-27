@@ -15,20 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package main
 
-/*
-import (
-	"bufio"
-	"encoding/binary"
-	"flag"
-	"fmt"
-	"math"
-	"net"
-	"os"
-	"reflect"
-	"sort"
-	"time"
-)
-*/
 import (
 	"bufio"
 	"flag"

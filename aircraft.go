@@ -16,7 +16,9 @@
 package main
 
 import (
+	"fmt"
 	"math"
+	"time"
 )
 
 type Aircraft struct {
@@ -52,16 +54,16 @@ func (a aircraftList) Less(i, j int) bool {
 
 	} else if *sortMode == sortModeDistance {
 		if a[i].latitude != math.MaxFloat64 && a[j].latitude != math.MaxFloat64 {
-			return sortByDistance(a, i, j)
+			return sortAircraftByDistance(a, i, j)
 		} else if a[i].latitude != math.MaxFloat64 && a[j].latitude == math.MaxFloat64 {
 			return true
 		} else if a[i].latitude == math.MaxFloat64 && a[j].latitude != math.MaxFloat64 {
 			return false
 		} else {
-			return sortByCallsign(a, i, j)
+			return sortAircraftByCallsign(a, i, j)
 		}
 	} else if *sortMode == sortModeCallsign {
-		return sortByCallsign(a, i, j)
+		return sortAircraftByCallsign(a, i, j)
 	} else {
 		// ?
 		//return a[i].lastPos > a[j].lastPos
@@ -76,7 +78,7 @@ func sortAircraftByDistance(a aircraftList, i, j int) bool {
 		*baseLat, *baseLon)
 	return dist_i < dist_j
 }
-func sortAircraftByDistance(a aircraftList, i, j int) bool {
+func sortAircraftByCallsign(a aircraftList, i, j int) bool {
 	if a[i].callsign != "" && a[j].callsign != "" {
 		return a[i].callsign < a[j].callsign
 	} else if a[i].callsign != "" && a[j].callsign == "" {

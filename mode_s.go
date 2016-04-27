@@ -17,7 +17,16 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
+	"time"
+
+/*
+	"github.com/mtigas/simurgh/aircraft"
+	"github.com/mtigas/simurgh/math"
+	"github.com/mtigas/simurgh/mode_s"
+	"github.com/mtigas/simurgh/output"
+*/
 )
 
 func parseModeS(message []byte, known_aircraft *aircraftMap) {
@@ -292,8 +301,6 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
 	switch msgSubType {
 	case 1:
 		break
-	case 99999:
-		os.Exit(1)
 	}
 
 	if callsign != "" {

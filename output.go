@@ -15,6 +15,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package main
 
+import (
+	"fmt"
+	"math"
+	"sort"
+	"time"
+)
+
 func durationSecondsElapsed(since time.Duration) string {
 	sec := uint8(since.Seconds())
 	if sec == math.MaxUint8 {
