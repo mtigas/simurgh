@@ -2,7 +2,8 @@
 
 A Mode-S "BEAST" TCP decoder server.
 
-Mostly an experiment to understand the raw binary "BEAST" signal format,
+Mostly an experiment to understand the raw binary "BEAST" signal format
+(see "[Further Reading](#further-reading)" for links about the format),
 and an excuse to learn Go. Don't use this for anything real.
 
 © 2016 Mike Tigas. Licensed under the [GNU Affero General Public License](LICENSE). Some portions based on [dump1090-mutability](https://github.com/mutability/dump1090), licensed under the [GNU Public License v2](https://github.com/mutability/dump1090/blob/master/LICENSE).
@@ -77,12 +78,15 @@ somewhere like `/usr/local/bin/`.
    [multilateration](https://en.wikipedia.org/wiki/Multilateration)
    (to improve location data) are marked with `^`; this data often comes back
    down [from FlightAware](https://flightaware.com/adsb/mlat/) if
-   your dump1090 instance is a "piaware" install that feeds to FlightAware.
+   your dump1090 instance was installed with the "piaware" packages (i.e.
+   `piaware-config`, et. al.) To receive MLAT data, your receiver needs to
+   have an accurate location set on your "My ADS-B" FlightAware page.
 
 ## Further Reading
 
-* [dump1090](https://github.com/mutability/dump1090) is one of several applications that accepts BEAST input (port `30004` or `31004`) and generates BEAST output (`30005`).
-* [Information about the data format](http://wiki.modesbeast.com/Mode-S_Beast:Data_Output_Formats) (see "Binary Format")
-  * dump1090's [mode s decoder](https://github.com/mutability/dump1090/blob/master/mode_s.c)
+* [Information about the BEAST data format](http://wiki.modesbeast.com/Mode-S_Beast:Data_Output_Formats) (see "Binary Format").
+* The BEAST format only encapsulates the raw Mode-S data in TCP. Some Mode-S reference:
   * Wikipedia: [Aviation transponder interrogation modes](https://en.wikipedia.org/wiki/Aviation_transponder_interrogation_modes)
   * Wikipedia: [Secondary surveillance radar#Mode S](https://en.wikipedia.org/wiki/Secondary_surveillance_radar#Mode_S)
+* [dump1090](https://github.com/mutability/dump1090) is one of several applications that accepts BEAST input (port `30004` or `31004`) and generates BEAST output (`30005`), and is a good reference point:
+  * portions of `simurgh` are based on the dump1090 [mode s decoder](https://github.com/mutability/dump1090/blob/master/mode_s.c) implementation
