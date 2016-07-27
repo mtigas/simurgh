@@ -23,6 +23,8 @@ import (
 	//"os"
 	"reflect"
 	"time"
+	"database/sql"
+	_ "github.com/go-sql-driver/mysql"
 )
 
 var magicTimestampMLAT = []byte{0xFF, 0x00, 0x4D, 0x4C, 0x41, 0x54}
@@ -57,6 +59,18 @@ func main() {
 
 	conns := serverConn(*sourceAddr)
 
+	db, err := sql.Open("mysql", "root@/dump1090")
+	if err != nil {
+		fmt.Println("Error connecting to DB server:")
+		fmt.Println(err)
+	}
+	err = db.Ping()
+	if err != nil {
+		fmt.Println("Error connecting to DB server:")
+		fmt.Println(err)
+	}
+
+
 	quit := make(chan struct{})
 	ticker := time.NewTicker(500 * time.Millisecond)
 	go func() {
@@ -71,8 +85,10 @@ func main() {
 		}
 	}()
 
+
+
 	for {
-		go handleConnection(<-conns, &known_aircraft)
+		go handleConnection(<-conns, &known_aircraft, db)
 	}
 }
 
@@ -93,7 +109,7 @@ func serverConn(sourceAddr string) chan net.Conn {
 	return ch
 }
 
-func handleConnection(conn net.Conn, known_aircraft *aircraftMap) {
+func handleConnection(conn net.Conn, known_aircraft *aircraftMap, db *sql.DB) {
 	reader := bufio.NewReader(conn)
 
 	var buffered_message []byte
@@ -172,7 +188,6 @@ func handleConnection(conn net.Conn, known_aircraft *aircraftMap) {
 			//timestamp = time.Now()
 		} else {
 			timestamp = parseTime(message[1:7])
-			_ = timestamp
 			//fmt.Println(timestamp)
 		}
 		switch msgType {
@@ -196,7 +211,7 @@ func handleConnection(conn net.Conn, known_aircraft *aircraftMap) {
 		//}
 		//fmt.Println()
 
-		parseModeS(msgContent, isMlat, known_aircraft)
+		parseModeS(msgContent, isMlat, timestamp, known_aircraft, db)
 		//fmt.Println()
 
 		//printAircraftTable(known_aircraft)

@@ -93,3 +93,20 @@ func sortAircraftByCallsign(a aircraftList, i, j int) bool {
 		return hexi < hexj
 	}
 }
+
+
+type MessageInfo struct {
+	icaoAddr uint32 //
+
+	callsign string //
+
+	altitude  int32 //
+
+	msgTime time.Time //
+	localTime time.Time //
+	linkFmt uint //
+	msgType uint //
+	msgSubType uint //
+
+	mlat bool //
+}

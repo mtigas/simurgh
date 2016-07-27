@@ -20,21 +20,29 @@ import (
 	//"fmt"
 	"math"
 	"time"
+	"database/sql"
 )
 
-func parseModeS(message []byte, isMlat bool, known_aircraft *aircraftMap) {
+func parseModeS(message []byte, isMlat bool, timestamp time.Time, known_aircraft *aircraftMap, db *sql.DB) {
 	// https://en.wikipedia.org/wiki/Secondary_surveillance_radar#Mode_S
 	// https://github.com/mutability/dump1090/blob/master/mode_s.c
-	linkFmt := uint((message[0] & 0xF8) >> 3)
+
+	var msgdata MessageInfo
+	msgdata.linkFmt = uint((message[0] & 0xF8) >> 3)
+	msgdata.mlat = isMlat
+	msgdata.msgTime = timestamp
+	msgdata.localTime = time.Now()
 
 	var aircraft Aircraft
+	var prev_aircraft Aircraft
 	var aircraft_exists bool
+
 	icaoAddr := uint32(math.MaxUint32)
 	altCode := uint16(math.MaxUint16)
 	altitude := int32(math.MaxInt32)
 
 	//var msgType string
-	//switch linkFmt {
+	//switch msgdata.linkFmt {
 	//case 0:
 	//  msgType = "short air-air surveillance (TCAS)"
 	//case 4:
@@ -62,12 +70,13 @@ func parseModeS(message []byte, isMlat bool, known_aircraft *aircraftMap) {
 	//default:
 	//  msgType = "unknown"
 	//}
-	//fmt.Printf("UF: %d\n", linkFmt)
-	//fmt.Printf("UF: %08s\n", strconv.FormatInt(linkFmt, 2))
+	//fmt.Printf("UF: %d\n", msgdata.linkFmt)
+	//fmt.Printf("UF: %08s\n", strconv.FormatInt(msgdata.linkFmt, 2))
 	//fmt.Println(msgType)
 
-	if linkFmt == 11 || linkFmt == 17 || linkFmt == 18 {
+	if msgdata.linkFmt == 11 || msgdata.linkFmt == 17 || msgdata.linkFmt == 18 {
 		icaoAddr = uint32(message[1])*65536 + uint32(message[2])*256 + uint32(message[3])
+		msgdata.icaoAddr = icaoAddr
 		//fmt.Printf("ICAO: %06x\n", icaoAddr)
 	}
 
@@ -89,6 +98,7 @@ func parseModeS(message []byte, isMlat bool, known_aircraft *aircraftMap) {
 			  mlat: isMlat}
 		} else {
 			aircraft = (*ptrAircraft)
+			prev_aircraft = aircraft
 			aircraft.mlat = isMlat
 		}
 		aircraft.lastPing = time.Now()
@@ -96,7 +106,7 @@ func parseModeS(message []byte, isMlat bool, known_aircraft *aircraftMap) {
 	//fmt.Println(aircraft)
 	//fmt.Println(aircraft_exists)
 
-	if linkFmt == 0 || linkFmt == 4 || linkFmt == 16 || linkFmt == 20 {
+	if msgdata.linkFmt == 0 || msgdata.linkFmt == 4 || msgdata.linkFmt == 16 || msgdata.linkFmt == 20 {
 		// Altitude: 13 bit signal
 		altCode = (uint16(message[2])*256 + uint16(message[3])) & 0x1FFF
 
@@ -120,17 +130,20 @@ func parseModeS(message []byte, isMlat bool, known_aircraft *aircraftMap) {
 
 		if altitude != math.MaxInt32 {
 			aircraft.altitude = altitude
+			msgdata.altitude = altitude
 		}
 	}
 
-	if linkFmt == 17 || linkFmt == 18 {
-		decodeExtendedSquitter(message, linkFmt, &aircraft)
+	if msgdata.linkFmt == 17 || msgdata.linkFmt == 18 {
+		decodeExtendedSquitter(message, &msgdata, &aircraft)
 	}
 
 	if icaoAddr != math.MaxUint32 {
 		(*known_aircraft)[icaoAddr] = &aircraft
 	}
 	//fmt.Println(aircraft)
+
+	dbWriteModeS(db, message, &msgdata, &aircraft, &prev_aircraft)
 }
 
 func parseTime(timebytes []byte) time.Time {
@@ -160,12 +173,10 @@ func parseTime(timebytes []byte) time.Time {
 		hr, min, sec, nanoSeconds, time.UTC)
 }
 
-func decodeExtendedSquitter(message []byte, linkFmt uint,
+func decodeExtendedSquitter(message []byte, msgdata *MessageInfo,
 	aircraft *Aircraft) {
 
-	var callsign string
-
-	//if linkFmt == 18 {
+	//if msgdata.linkFmt == 18 {
 	//  switch (message[0] & 7) {
 	//  case 1:
 	//    fmt.Println("Non-ICAO")
@@ -182,12 +193,11 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
 	//  }
 	//}
 
-	msgType := uint(message[4]) >> 3
-	var msgSubType uint
-	if msgType == 29 {
-		msgSubType = (uint(message[4]) & 6) >> 1
+	msgdata.msgType = uint(message[4]) >> 3
+	if msgdata.msgType == 29 {
+		msgdata.msgSubType = (uint(message[4]) & 6) >> 1
 	} else {
-		msgSubType = uint(message[4]) & 7
+		msgdata.msgSubType = uint(message[4]) & 7
 	}
 
 	//fmt.Printf("ext msg: %d\n", msgType)
@@ -198,7 +208,7 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
 	longitude := float64(math.MaxFloat64)
 	altitude := int32(math.MaxInt32)
 
-	switch msgType {
+	switch msgdata.msgType {
 	case 1, 2, 3, 4:
 		// Aircraft ID
 		chars1 := uint(message[5])<<16 + uint(message[6])<<8 + uint(message[7])
@@ -231,8 +241,8 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
 
 			fltByte[4] = aisCharset[chars2&0x3F]
 
-			callsign = string(fltByte[:8])
-			//fmt.Println("Callsign: ", callsign)
+			msgdata.callsign = string(fltByte[:8])
+			//fmt.Println("Callsign: ", msgdata.callsign)
 		}
 
 	//case 19:
@@ -249,13 +259,13 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
 		// Airborne position
 
 		ac12Data := (uint(message[5]) << 4) + (uint(message[6])>>4)&0x0FFF
-		if msgType != 0 {
+		if msgdata.msgType != 0 {
 			raw_latitude = uint32(message[6])&3<<15 + uint32(message[7])<<7 +
 				uint32(message[8])>>1
 			raw_longitude = uint32(message[8])&1<<16 + uint32(message[9])<<8 +
 				uint32(message[10])
 		}
-		if msgType != 20 && msgType != 21 && msgType != 22 {
+		if msgdata.msgType != 20 && msgdata.msgType != 21 && msgdata.msgType != 22 {
 			//altitude :=
 			//fmt.Printf("ac12: %#04x\n", ac12Data)
 			//fmt.Printf("ac12: %d\n", decodeAC12Field(ac12Data))
@@ -293,16 +303,17 @@ func decodeExtendedSquitter(message []byte, linkFmt uint,
 		}
 	}
 
-	switch msgSubType {
+	switch msgdata.msgSubType {
 	case 1:
 		break
 	}
 
-	if callsign != "" {
-		aircraft.callsign = callsign
+	if msgdata.callsign != "" {
+		aircraft.callsign = msgdata.callsign
 	}
 	if altitude != math.MaxInt32 {
 		aircraft.altitude = altitude
+		msgdata.altitude = altitude
 	}
 	if latitude != math.MaxFloat64 && longitude != math.MaxFloat64 {
 		aircraft.latitude = latitude
