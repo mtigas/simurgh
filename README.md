@@ -32,7 +32,7 @@ somewhere like `/usr/local/bin/`.
 
 1. You need a `dump1090` server running.
 
-2. Launch the simurgh listener by running `simurgh`. There are also some flags
+2. Launch the tool by running `simurgh`. There are also some flags
    you can use:
 
    ```
@@ -40,8 +40,8 @@ somewhere like `/usr/local/bin/`.
        latitude used for distance calculation (default 40.77725)
    -baseLon float
        longitude for distance calculation (default -73.872611)
-   -bind string
-       ":port" or "ip:port" to bind the server to (default "127.0.0.1:8081")
+   -server string
+       ":port" or "ip:port" of the BEAST server to connect to (default "127.0.0.1:30005")
    -sortMode uint
        0: sort by time, 1: sort by distance, 3: sort by air (default 1)
    ```
@@ -52,10 +52,12 @@ somewhere like `/usr/local/bin/`.
 3. Given that `dump1090` is running on the same machine as this program,
 
    ```
-   nc 127.0.0.1 30005 | nc 127.0.0.1 8081
+   simurgh
+   # or
+   simurgh -server 127.0.0.1:30005
    ```
 
-   will pipe the appropriate network data in and you should see some basic
+   will connect to the running dump1090 instance and you should see some basic
    aircraft output, not unlike dump1090’s "interactive mode". Something like:
 
    ```

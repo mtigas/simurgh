@@ -8,11 +8,11 @@
 //
 // This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 // GNU Affero General Public License for more details.
 //
 // You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
 package main
 
 import (
@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	//"os"
 	"reflect"
 	"time"
 )
@@ -34,7 +35,7 @@ const (
 )
 
 var (
-	listenAddr = flag.String("bind", "127.0.0.1:8081", "\":port\" or \"ip:port\" to bind the server to")
+	sourceAddr = flag.String("server", "127.0.0.1:30005", "\":port\" or \"ip:port\" of the BEAST server to connect to")
 	baseLat    = flag.Float64("baseLat", 40.77725, "latitude used for distance calculation")
 	baseLon    = flag.Float64("baseLon", -73.872611, "longitude for distance calculation")
 	sortMode   = flag.Uint("sortMode", sortModeDistance, "0: sort by time, 1: sort by distance, 3: sort by air")
@@ -54,44 +55,40 @@ func main() {
 
 	known_aircraft := make(aircraftMap)
 
-	server, _ := net.Listen("tcp", *listenAddr)
+	conns := serverConn(*sourceAddr)
 
-	conns := startServer(server)
-
-	ticker := time.NewTicker(500*time.Millisecond)
 	quit := make(chan struct{})
+	ticker := time.NewTicker(500 * time.Millisecond)
 	go func() {
-	    for {
-	       select {
-	        case <- ticker.C:
-	            printAircraftTable(&known_aircraft)
-	        case <- quit:
-	            ticker.Stop()
-	            return
-	        }
-	    }
-	 }()
+		for {
+			select {
+			case <-ticker.C:
+				printAircraftTable(&known_aircraft)
+			case <-quit:
+				ticker.Stop()
+				return
+			}
+		}
+	}()
 
 	for {
 		go handleConnection(<-conns, &known_aircraft)
 	}
-
 }
 
-func startServer(listener net.Listener) chan net.Conn {
+func serverConn(sourceAddr string) chan net.Conn {
 	ch := make(chan net.Conn)
-	i := 0
+
+	//i := 0
 	go func() {
-		for {
-			client, _ := listener.Accept()
-			if client == nil {
-				//fmt.Println("couldn't accept: ", err)
-				continue
+			conn, err := net.Dial("tcp", sourceAddr)
+			if err != nil {
+				fmt.Println("Error connecting to server:")
+				fmt.Println(err)
 			}
-			i++
-			//mt.Printf("%d: %v <-> %v\n", i, client.LocalAddr(), client.RemoteAddr())
-			ch <- client
-		}
+			//i++
+			//fmt.Printf("%d: %v <-> %v\n", i, conn.LocalAddr(), conn.RemoteAddr())
+			ch <- conn
 	}()
 	return ch
 }
@@ -102,15 +99,17 @@ func handleConnection(conn net.Conn, known_aircraft *aircraftMap) {
 	var buffered_message []byte
 	// listen to this connection forever
 	for {
-		current_message, _ := reader.ReadBytes(0x1A)
-		//if err != nil {
-		//	fmt.Println("ERR:", err)
-		//}
+		current_message, err := reader.ReadBytes(0x1A)
+		if err != nil {
+			fmt.Println("ERR:", err)
+		}
+		//fmt.Println(current_message)
 		// Note `message` does not include 0x1A start byte b/c ReadBytes behavior
 
-		if len(current_message) == 0 {
-			break
-		}
+		//if len(current_message) == 0 {
+			//break
+		//	continue
+		//}
 
 		// Add to our own buffer (or create it)
 		if buffered_message == nil {
@@ -178,13 +177,13 @@ func handleConnection(conn net.Conn, known_aircraft *aircraftMap) {
 		}
 		switch msgType {
 		//case 0x31:
-		//  fmt.Println("Type 1 Mode-AC")
+			//fmt.Println("Type 1 Mode-AC")
 		case 0x32:
 			//fmt.Println("Type 2 Mode-S short")
 		case 0x33:
 			//fmt.Println("Type 3 Mode-S long")
-			//case 0x34:
-			//  fmt.Println("Status Signal")
+		//case 0x34:
+			//fmt.Println("Status Signal")
 		}
 
 		//sigLevel := message[7]
@@ -193,7 +192,7 @@ func handleConnection(conn net.Conn, known_aircraft *aircraftMap) {
 		msgContent := message[8 : len(message)-1]
 		////fmt.Printf("%d byte frame\n", len(msgContent))
 		//for i:= 0; i < len(msgContent); i++ {
-		//  fmt.Printf("%02x", msgContent[i])
+		//	fmt.Printf("%02x", msgContent[i])
 		//}
 		//fmt.Println()
 
