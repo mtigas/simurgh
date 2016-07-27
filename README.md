@@ -2,6 +2,10 @@
 
 A Mode-S "BEAST" TCP decoder server.
 
+* **db branch**: WIP branch to replace
+[dump1090-stream-parser](https://github.com/mtigas/dump1090-stream-parser) with
+faster go implementation
+
 Mostly an experiment to understand the raw binary "BEAST" signal format,
 and an excuse to learn Go. Don't use this for anything real.
 

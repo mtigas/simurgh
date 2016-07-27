@@ -58,8 +58,6 @@ func main() {
 
 	conns := startServer(server)
 
-
-
 	ticker := time.NewTicker(500*time.Millisecond)
 	quit := make(chan struct{})
 	go func() {
@@ -73,7 +71,6 @@ func main() {
 	        }
 	    }
 	 }()
-
 
 	for {
 		go handleConnection(<-conns, &known_aircraft)
