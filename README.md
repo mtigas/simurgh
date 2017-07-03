@@ -6,9 +6,9 @@ Mostly an experiment to understand the raw binary "BEAST" signal format
 (see "[Further Reading](#further-reading)" for links about the format),
 and an excuse to learn Go. Don't use this for anything real.
 
-© 2016 Mike Tigas. Licensed under the [GNU Affero General Public License v3][license]. This file & other documentation also available under [Creative Commons Attribution-ShareAlike 4.0][license]. See [COPYING.md](COPYING.md) for more information.
+© 2016-2017 Mike Tigas, all rights reserved. [See license information][license].
 
-[license]: LICENSE.md
+[license]: COPYING.md
 
 ## Building / Installation
 
